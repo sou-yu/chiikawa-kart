@@ -9,7 +9,7 @@ import './charSelect.css';
 //  ・絵の中の「けってい」で決めて次へ進む。「もどる」はタイトルへ（null を返す）
 // ?char=（キャラの id）を付けると、この画面を飛ばす。?course= だけ付けたときは先頭のキャラで始める（開発・確認用）
 
-const SRC = `${import.meta.env.BASE_URL}images/charselect-bg.webp`;
+const SRC = new URL(`${import.meta.env.BASE_URL}images/charselect-bg.webp`, document.baseURI).href;
 const IMG_W = 940;
 const IMG_H = 1672;
 // 絵の中のボタンの範囲（絵に対する割合）

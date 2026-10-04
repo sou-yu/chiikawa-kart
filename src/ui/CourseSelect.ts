@@ -7,7 +7,7 @@ import './courseSelect.css';
 // その絵のカードの部分を切り出して重ね、キャンディーポップロードのほうは枠の色とチェックをかくして、ふつうのカードに戻す。
 // ?course=（コースの id）を付けると、この画面を飛ばす（開発・確認用）
 
-const SRC = `${import.meta.env.BASE_URL}images/courseselect-bg.webp`;
+const SRC = new URL(`${import.meta.env.BASE_URL}images/courseselect-bg.webp`, document.baseURI).href;
 const IMG_W = 941;
 const IMG_H = 1672;
 

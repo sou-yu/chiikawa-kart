@@ -2,7 +2,8 @@
 // 絵の中の「スタート」ボタン（または画面のどこか）を押すと次へ進む。
 // ?char= や ?course= を付けたとき、または ?notitle のときは、この画面を飛ばす（開発・確認用）
 
-const SRC = `${import.meta.env.BASE_URL}images/title.webp`;
+// CSS 変数の url() は CSS ファイル（assets/）からの相対で解かれるので、ページ基準の絶対 URL にしておく
+const SRC = new URL(`${import.meta.env.BASE_URL}images/title.webp`, document.baseURI).href;
 const IMG_W = 941;
 const IMG_H = 1672;
 // 絵の中の「スタート」ボタンの範囲（絵に対する割合）。少しだけ内側にとる
