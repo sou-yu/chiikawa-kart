@@ -2,6 +2,8 @@
 // 絵の中の「スタート」ボタン（または画面のどこか）を押すと次へ進む。
 // ?char= や ?course= を付けたとき、または ?notitle のときは、この画面を飛ばす（開発・確認用）
 
+import { getControlMode, setControlMode } from '../core/settings';
+
 // CSS 変数の url() は CSS ファイル（assets/）からの相対で解かれるので、ページ基準の絶対 URL にしておく
 const SRC = new URL(`${import.meta.env.BASE_URL}images/title.webp`, document.baseURI).href;
 const IMG_W = 941;
@@ -21,6 +23,11 @@ export function showTitle(): Promise<void> {
       <div class="art">
         <img src="${SRC}" alt="ちいかわカート" draggable="false">
         <span class="go"></span>
+        <div class="ctl" role="group" aria-label="そうさほうほう">
+          <span class="lb">そうさ</span>
+          <button type="button" data-mode="buttons"><i>🕹️</i>ボタン</button>
+          <button type="button" data-mode="thumb"><i>☝️</i>おやゆび</button>
+        </div>
       </div>`;
     el.style.setProperty('--title-src', `url("${SRC}")`);
     const art = el.querySelector<HTMLDivElement>('.art')!;
@@ -35,6 +42,28 @@ export function showTitle(): Promise<void> {
       backgroundSize: `${100 / BTN.w}% ${100 / BTN.h}%`,
       backgroundPosition: `${(BTN.x / (1 - BTN.w)) * 100}% ${(BTN.y / (1 - BTN.h)) * 100}%`,
     });
+
+    // 操作方法のえらび（ボタン／おやゆび）。えらんだほうをピンクで強調。ここを押しても、ゲームは始まらない
+    const ctl = el.querySelector<HTMLDivElement>('.ctl')!;
+    const paintCtl = () => {
+      const now = getControlMode();
+      for (const b of ctl.querySelectorAll<HTMLButtonElement>('button')) {
+        const on = b.dataset.mode === now;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-pressed', String(on));
+      }
+    };
+    paintCtl();
+    ctl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button');
+      if (!b) return;
+      setControlMode(b.dataset.mode === 'thumb' ? 'thumb' : 'buttons');
+      paintCtl();
+      b.blur(); // 押したあとも、キーでスタートできるように
+    });
+    // キーボードで押したときに、ゲームが始まってしまわないように
+    ctl.addEventListener('keydown', (e) => e.stopPropagation());
 
     // 絵ぜんぶが見えるように収める（絵の外側は、ぼかした同じ絵で埋める）。画面の形が絵とほとんど同じなら、いっぱいに広げる
     const fit = () => {

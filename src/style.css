@@ -364,30 +364,22 @@ html, body {
 /* タッチ端末：順位はボタンの上へ */
 body.touch #place { bottom: calc(var(--safe-b) + 112px); right: calc(var(--safe-r) + 16px); }
 body.touch #minimap { transform: translateY(-78%); }
-/* 右端：ジャンプ（いちばん押しやすい所）、その左：アイテム、さらに左：ブレーキ */
+/* 右端：ジャンプ（いちばん押しやすい所）、その左：アイテム（ブレーキは無し） */
 #touch .jump {
   right: calc(var(--safe-r) + 22px);
   bottom: calc(var(--safe-b) + 18px);
-  width: 96px;
-  height: 96px;
+  width: 120px;
+  height: 120px;
   background: #ffe08a;
-  font-size: 15px;
+  font-size: 19px;
 }
 #touch .item {
-  right: calc(var(--safe-r) + 128px);
-  bottom: calc(var(--safe-b) + 14px);
-  width: 80px;
-  height: 80px;
+  right: calc(var(--safe-r) + 152px);
+  bottom: calc(var(--safe-b) + 16px);
+  width: 100px;
+  height: 100px;
   background: #bfe3ff;
-  font-size: 14px;
-}
-#touch .brake {
-  right: calc(var(--safe-r) + 218px);
-  bottom: calc(var(--safe-b) + 10px);
-  width: 64px;
-  height: 64px;
-  background: #fff;
-  font-size: 12px;
+  font-size: 16px;
 }
 
 #rotate {
@@ -417,9 +409,8 @@ body.touch #minimap { transform: translateY(-78%); }
   #place { font-size: 64px; }
   #minimap { width: 120px; height: 120px; }
   #center.count { font-size: 90px; }
-  #touch .jump { width: 84px; height: 84px; right: calc(var(--safe-r) + 16px); bottom: calc(var(--safe-b) + 12px); }
-  #touch .item { width: 70px; height: 70px; right: calc(var(--safe-r) + 108px); bottom: calc(var(--safe-b) + 10px); }
-  #touch .brake { width: 56px; height: 56px; right: calc(var(--safe-r) + 186px); bottom: calc(var(--safe-b) + 8px); }
+  #touch .jump { width: 104px; height: 104px; right: calc(var(--safe-r) + 16px); bottom: calc(var(--safe-b) + 12px); font-size: 17px; }
+  #touch .item { width: 88px; height: 88px; right: calc(var(--safe-r) + 132px); bottom: calc(var(--safe-b) + 10px); font-size: 15px; }
   body.touch #place { bottom: calc(var(--safe-b) + 100px); }
   body.touch #minimap { width: 104px; height: 104px; top: calc(var(--safe-t) + 50px); transform: none; }
 }
@@ -451,12 +442,71 @@ body.portrait #banner { top: 30%; font-size: 34px; }
 body.portrait #banner.big { font-size: 46px; }
 body.portrait #results .panel { min-width: 0; width: min(92vw, 420px); padding: 8px 14px 12px; }
 
-/* 操作：ハンドルは下 45% の左側だけ */
-body.portrait #touch .stick-zone { top: 55%; width: 58%; }
+/* 操作：ハンドルは下 45% の、左端から中央を越えるあたりまで（ボタンはその上に重なる）。
+   ジャンプとアイテムは大きく、右端にたてに積む */
+body.portrait #touch .stick-zone { top: 55%; width: 74%; }
 body.portrait #touch .stick-base { width: 104px; height: 104px; margin: -52px 0 0 -52px; }
-body.portrait #touch .jump { width: 96px; height: 96px; right: calc(var(--safe-r) + 18px); bottom: calc(var(--safe-b) + 40px); }
-body.portrait #touch .item { width: 74px; height: 74px; right: calc(var(--safe-r) + 30px); bottom: calc(var(--safe-b) + 154px); }
-body.portrait #touch .brake { width: 60px; height: 60px; right: calc(var(--safe-r) + 128px); bottom: calc(var(--safe-b) + 26px); }
+body.portrait #touch .jump { width: 136px; height: 136px; right: calc(var(--safe-r) + 14px); bottom: calc(var(--safe-b) + 36px); font-size: 20px; }
+body.portrait #touch .item { width: 112px; height: 112px; right: calc(var(--safe-r) + 26px); bottom: calc(var(--safe-b) + 184px); font-size: 17px; }
+
+/* おや指操作：ボタンは無し。画面の下 60% のどこでも指を置ける（置いた点がハンドルの中心） */
+#touch.thumb .stick-zone { top: 40%; width: 100%; }
+body.portrait #touch.thumb .stick-zone { top: 40%; width: 100%; }
+#touch.thumb .stick-base { background: rgba(255, 255, 255, 0.38); }
+/* 触っているあいだ、輪の上に「↑ジャンプ」、下に「↓アイテム」 */
+#touch .hint {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 9px 3px;
+  border-radius: 999px;
+  background: rgba(255, 252, 245, 0.88);
+  border: 2px solid var(--ink);
+  color: var(--ink);
+  font: 900 13px/1.2 var(--font);
+  white-space: nowrap;
+  opacity: 0.8;
+}
+#touch .hint.up { bottom: calc(100% + 14px); }
+#touch .hint.dn { top: calc(100% + 14px); }
+#touch .hint.fire { animation: hintFire 0.3s ease-out; }
+@keyframes hintFire {
+  0% { transform: translateX(-50%) scale(1); background: #ffe08a; }
+  40% { transform: translateX(-50%) scale(1.3); background: #ffe08a; opacity: 1; }
+  100% { transform: translateX(-50%) scale(1); }
+}
+/* 触る前の、薄いガイド（右下）。最初に触ったら消える */
+#touch .thumb-guide {
+  position: absolute;
+  right: calc(var(--safe-r) + 44px);
+  bottom: calc(var(--safe-b) + 128px);
+  width: 104px;
+  height: 104px;
+  pointer-events: none;
+  transition: opacity 0.4s;
+  animation: guideBob 2.4s ease-in-out infinite;
+}
+#touch .thumb-guide.gone { opacity: 0; animation: none; }
+#touch .thumb-guide .ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  border: 3px dashed rgba(47, 36, 31, 0.5);
+}
+#touch .thumb-guide span {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font: 900 13px/1.2 var(--font);
+  color: var(--ink);
+  text-shadow: 0 0 4px #fff, 0 0 4px #fff, 0 0 6px #fff;
+}
+#touch .thumb-guide .up { bottom: calc(100% + 6px); }
+#touch .thumb-guide .dn { top: calc(100% + 6px); }
+#touch .thumb-guide .lr { top: 50%; transform: translate(-50%, -50%); font-size: 12px; }
+@keyframes guideBob { 50% { transform: translateX(-10px); } }
 
 
 /* タイトル画面：用意した 1 枚の絵をそのまま見せる。絵の外側は、同じ絵をぼかして敷く */
@@ -503,6 +553,53 @@ body.portrait #touch .brake { width: 60px; height: 60px; right: calc(var(--safe-
   pointer-events: none;
 }
 @keyframes titleGo { 50% { transform: scale(1.05); } }
+
+/* 操作方法のえらび：絵の下の雲の上。大きさは絵の幅（cqw）に合わせる */
+#title-screen .art { container-type: inline-size; }
+#title-screen .ctl {
+  position: absolute;
+  left: 50%;
+  bottom: 1.4%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 1.8cqw;
+  padding: 1.6cqw 2.6cqw;
+  white-space: nowrap;
+  background: rgba(255, 249, 238, 0.94);
+  border: 0.9cqw solid #f6b8cf;
+  border-radius: 999px;
+  box-shadow: 0 0.9cqw 0 #e99ab8, 0 1.8cqw 3cqw rgba(110, 50, 70, 0.25);
+  font-family: var(--font);
+  cursor: default;
+}
+#title-screen .ctl .lb { font-weight: 900; font-size: 3.6cqw; color: #8a5a44; }
+#title-screen .ctl button {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 1cqw;
+  height: 10cqw;
+  min-height: 40px;
+  padding: 0 3.6cqw;
+  border-radius: 999px;
+  border: 0.7cqw solid #d9bfa6;
+  background: #fffdf8;
+  color: #6b4533;
+  font: 900 4cqw/1 var(--font);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s, background 0.15s;
+}
+#title-screen .ctl button i { font-style: normal; font-size: 4.6cqw; }
+#title-screen .ctl button:active { transform: scale(0.95); }
+#title-screen .ctl button.on {
+  background: #ffb7cf;
+  border-color: #f26e98;
+  color: #5a2a3c;
+  box-shadow: inset 0 0 0 0.5cqw #fff;
+}
+#title-screen .ctl button.on::after { content: '✓'; font-size: 4.2cqw; color: #d83a72; }
 
 /* けっか表示中は、タッチの操作ボタンを隠す（けっかの表と重なるため） */
 body.finished #touch { display: none; }

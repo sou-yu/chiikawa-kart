@@ -1,4 +1,5 @@
 import { TouchControls } from '../ui/TouchControls';
+import { getControlMode } from './settings';
 
 export interface InputState {
   steer: number; // -1（左）..1（右）
@@ -17,6 +18,8 @@ export class Input {
   private jumpPending = false;
   private touch: TouchControls | null = null;
   private anyKey = false;
+  // 開発中の確認用：タッチで出したジャンプ・アイテムの回数
+  readonly touchCount = { jump: 0, item: 0 };
 
   constructor(uiRoot: HTMLElement) {
     window.addEventListener('keydown', (e) => {
@@ -29,9 +32,23 @@ export class Input {
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     window.addEventListener('blur', () => this.keys.clear());
     if (isTouchDevice) {
-      document.body.classList.add('touch');
-      this.touch = new TouchControls(uiRoot, () => (this.itemPending = true), () => (this.jumpPending = true));
+      const mode = getControlMode();
+      document.body.classList.add('touch', mode === 'thumb' ? 'ctl-thumb' : 'ctl-buttons');
+      this.touch = new TouchControls(
+        uiRoot,
+        () => {
+          this.itemPending = true;
+          this.touchCount.item++;
+        },
+        () => {
+          this.jumpPending = true;
+          this.touchCount.jump++;
+        },
+        mode,
+      );
     }
+    // 「タップしてスタート」は、画面のどこを触っても始まるように
+    window.addEventListener('pointerdown', () => (this.anyKey = true), true);
   }
 
   // スタート画面を抜けるための「なにか押した」
@@ -55,8 +72,7 @@ export class Input {
     const t = this.touch;
     if (t) {
       if (Math.abs(t.steer) > Math.abs(s.steer)) s.steer = t.steer;
-      s.brake ||= t.brake;
-      if (t.started && !s.brake) s.throttle = true; // タッチはアクセル自動
+      if (t.started && !s.brake) s.throttle = true; // タッチはアクセル自動（ブレーキはキーボードだけ）
     }
     return s;
   }

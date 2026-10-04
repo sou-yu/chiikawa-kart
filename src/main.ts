@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { CHARACTERS } from './config/characters';
 import { KART, RACE } from './config/tuning';
 import { Input, isTouchDevice } from './core/Input';
+import { getControlMode } from './core/settings';
 import { Particles, type FXSystems } from './fx/Particles';
 import { ItemSystem } from './game/Items';
 import { Race } from './game/Race';
@@ -265,6 +266,7 @@ async function boot() {
   // --- レーサー（プレイヤーは最後尾スタート）---
   await playerModelReady;
   const input = new Input(uiRoot);
+  if (import.meta.env.DEV) Object.assign(window, { __input: input });
   // えらんだキャラが主人公。ほかのキャラが相手になる
   const playerSpec = CHARACTERS.find((c) => c.id === charId) ?? CHARACTERS[0];
   // 相手は、えらばなかったキャラの中から毎回ランダムに（スタートの並び順もランダム）
@@ -403,12 +405,12 @@ async function boot() {
   }
 
   // --- タイトル → カウントダウン ---
-  hud.showCenter(
-    `${
-      isTouchDevice ? '左下を左右になぞってハンドル\n（大きく切るとドリフト）\n右下のボタンでジャンプ・アイテム' : '↑アクセル ←→ハンドル（切り続けるとドリフト）\nZ でジャンプ・Space でアイテム'
-    }\n<span class="tap">${isTouchDevice ? 'タップしてスタート' : 'キーを押してスタート'}</span>`,
-    'title',
-  );
+  const howTo = !isTouchDevice
+    ? '↑アクセル ←→ハンドル（切り続けるとドリフト）\nZ でジャンプ・Space でアイテム'
+    : getControlMode() === 'thumb'
+      ? '親指を置いて、左右にスライドでハンドル\n（大きく切るとドリフト）\n↑にはじくとジャンプ　↓でアイテム'
+      : '左下〜まんなかを左右になぞってハンドル\n（大きく切るとドリフト）\n右下のボタンでジャンプ・アイテム';
+  hud.showCenter(`${howTo}\n<span class="tap">${isTouchDevice ? 'タップしてスタート' : 'キーを押してスタート'}</span>`, 'title');
   let lastCount = -1;
   let resultsShown = false;
 
