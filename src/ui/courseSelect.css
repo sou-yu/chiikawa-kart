@@ -1,0 +1,181 @@
+/* コースをえらぼう画面。背景は 1 枚の絵（941×1672）。その上に、絵の座標に合わせて部品をのせる。
+   大きさは、絵の幅に合わせて cqw（絵の幅の 1%）で決める */
+#course-pick {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  overflow: hidden;
+  background: #f6dfee;
+  font-family: var(--font);
+  animation: cpIn 0.35s ease-out;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#course-pick.out { opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+@keyframes cpIn { from { opacity: 0; } }
+#course-pick .bg {
+  position: absolute;
+  inset: -6%;
+  background: var(--cp-src) center / cover no-repeat;
+  filter: blur(22px) saturate(1.1);
+}
+#course-pick .art {
+  container-type: inline-size;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+#course-pick .back-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  -webkit-touch-callout: none;
+}
+
+/* 絵の中の「えらばれたキャンディー」を、紙の色でうめる */
+#course-pick .paper {
+  position: absolute;
+  background-repeat: no-repeat;
+  opacity: 0;
+  pointer-events: none;
+}
+#course-pick .paper.show { opacity: 1; }
+#course-pick .paper {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4cqw), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.4cqw), transparent);
+}
+
+/* カード：絵のカードの部分を切り出して重ねたもの */
+#course-pick .cc {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(var(--s, 1));
+  transform-origin: 50% 50%;
+  transition: transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.3), opacity 0.2s;
+}
+#course-pick .cc.on { opacity: 1; }
+#course-pick .cc.pick { animation: cpPick 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.3); }
+@keyframes cpPick {
+  0% { transform: scale(calc(var(--s) * 0.93)); }
+  55% { transform: scale(calc(var(--s) * 1.06)); }
+  100% { transform: scale(var(--s)); }
+}
+#course-pick .cc > * { position: absolute; background-repeat: no-repeat; }
+
+/* ふちの輪：えらばれたカードはピンク、えらばれていないキャンディーは白（絵の中のピンクの枠をかくす） */
+#course-pick .ring { box-sizing: border-box; pointer-events: none; }
+#course-pick .pink .ring {
+  border: 0.95cqw solid #f26e98;
+  border-radius: 4.8cqw;
+  box-shadow: inset 0 0 0 0.45cqw #fff, 0 0 0 0.7cqw #ffd3e2, 0 0.8cqw 2.4cqw rgba(240, 100, 150, 0.55);
+}
+#course-pick .white .ring {
+  border: 2.45cqw solid #fffdf8;
+  border-radius: 4.6cqw;
+  box-shadow: 0 0.4cqw 1.2cqw rgba(110, 80, 60, 0.28);
+}
+#course-pick .fix { filter: blur(0.45cqw); }
+#course-pick .baked .ring,
+#course-pick .baked .fix,
+#course-pick .baked .chk { display: none; }
+
+/* チェック */
+#course-pick .chk {
+  display: none;
+  width: 9.35cqw;
+  height: 9.35cqw;
+  border-radius: 50%;
+  background: linear-gradient(#ff8fb5, #f0628f);
+  border: 0.85cqw solid #fff;
+  box-sizing: border-box;
+  box-shadow: 0 0.8cqw 1.6cqw rgba(200, 60, 110, 0.45);
+}
+#course-pick .pink .chk { display: block; }
+#course-pick .chk::after {
+  content: '';
+  position: absolute;
+  left: 2.6cqw;
+  top: 1.15cqw;
+  width: 2.2cqw;
+  height: 4.2cqw;
+  border: solid #fff;
+  border-width: 0 1cqw 1cqw 0;
+  transform: rotate(40deg);
+}
+
+/* きらきら */
+#course-pick .spark {
+  z-index: 4;
+  width: 3.4cqw;
+  height: 3.4cqw;
+  background: var(--c);
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  pointer-events: none;
+  animation: cpSpark 0.75s ease-out forwards;
+}
+@keyframes cpSpark {
+  from { transform: translate(-50%, -50%) scale(0.4); opacity: 1; }
+  to { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.2) rotate(120deg); opacity: 0; }
+}
+
+/* 押せる範囲（見えない） */
+#course-pick .hit {
+  position: absolute;
+  z-index: 5;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+
+/* 「もどる」「けってい」：同じ絵から切り出して重ね、押せることを見せる */
+#course-pick .back,
+#course-pick .ok {
+  position: absolute;
+  z-index: 6;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+#course-pick .back span,
+#course-pick .ok span {
+  position: absolute;
+  border-radius: 999px;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  filter: drop-shadow(0 0 1.2cqw rgba(255, 255, 255, 0.7));
+}
+#course-pick .ok span { animation: cpOk 1.5s ease-in-out infinite; }
+@keyframes cpOk { 50% { transform: scale(1.04); filter: drop-shadow(0 0 1.6cqw rgba(255, 255, 255, 0.9)) brightness(1.05); } }
+#course-pick .back:active span,
+#course-pick .ok:active span { animation: none; transform: translateY(0.8cqw) scale(0.97); filter: brightness(0.94); }
+
+/* けってい後：コースを作っているあいだの「じゅんび中」 */
+#course-pick .loading {
+  display: none;
+  position: absolute;
+  z-index: 10;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: 3cqw 9cqw 3.4cqw;
+  font: 900 8cqw/1 var(--font);
+  color: #5a3320;
+  background: rgba(255, 249, 238, 0.96);
+  border: 1cqw solid #f6b8cf;
+  border-radius: 8cqw;
+  box-shadow: 0 1cqw 0 #e99ab8, 0 2cqw 4cqw rgba(110, 50, 70, 0.3);
+  animation: cpBlink 1.1s ease-in-out infinite;
+}
+#course-pick.go .loading { display: block; }
+#course-pick.go .hit,
+#course-pick.go .back,
+#course-pick.go .ok { pointer-events: none; }
+@keyframes cpBlink { 50% { opacity: 0.55; } }

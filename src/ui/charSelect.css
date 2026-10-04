@@ -1,0 +1,260 @@
+/* キャラをえらぼう画面。背景は 1 枚の絵（940×1672）。その上に、絵の座標に合わせて部品をのせる。
+   大きさは、絵の幅に合わせて cqw（絵の幅の 1%）で決める */
+#char-select {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  overflow: hidden;
+  background: #f6dfee;
+  color: #5b4030;
+  font-family: var(--font);
+  animation: csIn 0.35s ease-out;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#char-select.out { opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+@keyframes csIn { from { opacity: 0; } }
+#char-select .bg {
+  position: absolute;
+  inset: -6%;
+  background: var(--cs-src) center / cover no-repeat;
+  filter: blur(22px) saturate(1.1);
+}
+#char-select .art {
+  container-type: inline-size;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+#char-select .back-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  -webkit-touch-callout: none;
+}
+
+/* ---- 台の上の大きなキャラ（3D） ---- */
+#char-select .stage-box {
+  position: absolute;
+  left: 3%;
+  top: 14%;
+  width: 94%;
+  height: 35.5%;
+}
+#char-select .viewer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+#char-select .viewer:active { cursor: grabbing; }
+
+/* 名前のふだ */
+#char-select .tag {
+  z-index: 2;
+  position: absolute;
+  right: 1%;
+  bottom: 3%;
+  min-width: 31cqw;
+  padding: 1.4cqw 4.4cqw 1.6cqw 5.6cqw;
+  text-align: center;
+  font: 900 6cqw/1.1 var(--font);
+  color: #5b3322;
+  background: linear-gradient(#fbcadb, #f7b3c9);
+  box-shadow: inset 0 0 0 0.6cqw #fdd9e5, 0 0.9cqw 0 #e58fae, 0 1.8cqw 2.4cqw rgba(110, 50, 70, 0.28);
+  transform: rotate(-3deg);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 3.2cqw 50%);
+  pointer-events: none;
+}
+#char-select .tag.pop { animation: csTag 0.45s cubic-bezier(.2, .9, .3, 1.3); }
+@keyframes csTag { 0% { transform: rotate(-3deg) scale(0.7); opacity: 0.3; } 100% { transform: rotate(-3deg) scale(1); opacity: 1; } }
+
+/* ひとこととステータスのメモ */
+#char-select .note {
+  z-index: 2;
+  position: absolute;
+  left: 3%;
+  top: 4%;
+  width: 30cqw;
+  padding: 1.4cqw 2.2cqw 1.6cqw;
+  background: #fffaf0;
+  border: 0.45cqw dashed #e6cfa6;
+  border-radius: 1.8cqw;
+  transform: rotate(-2deg);
+  box-shadow: 0 0.8cqw 1.6cqw rgba(110, 70, 40, 0.22);
+  pointer-events: none;
+}
+#char-select .note .bl { margin: 0 0 0.6cqw; font: 800 2.3cqw/1.3 var(--font); color: #8a6a55; }
+#char-select .note dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 0 1.4cqw; font: 800 2.3cqw/1.3 var(--font); }
+#char-select .note dt { color: #8a6a55; }
+#char-select .note dd { margin: 0; text-align: right; color: #f26b9a; letter-spacing: 0.1cqw; }
+
+/* 「まわせるよ」のヒント（いちど触ると消える） */
+#char-select .hint {
+  z-index: 2;
+  position: absolute;
+  left: 3%;
+  bottom: 4%;
+  padding: 1cqw 3cqw 1.2cqw;
+  font: 900 3cqw/1 var(--font);
+  color: #7a5a48;
+  background: rgba(255, 250, 240, 0.92);
+  border: 0.4cqw dashed #e6cfa6;
+  border-radius: 999px;
+  box-shadow: 0 0.6cqw 1.2cqw rgba(110, 70, 40, 0.2);
+  pointer-events: none;
+  animation: csHint 1.6s ease-in-out infinite;
+  transition: opacity 0.4s;
+}
+#char-select .hint.gone { opacity: 0; animation: none; }
+@keyframes csHint { 50% { transform: translateX(1cqw); } }
+
+/* ---- 本の上のキャラ一覧 ---- */
+#char-select .grid {
+  position: absolute;
+  left: 3%;
+  right: 3%;
+  top: 52.2%;
+  bottom: 13.2%;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  grid-template-rows: 1fr 1fr;
+}
+#char-select .item { grid-column: span 3; }
+#char-select .item:nth-child(n + 5) { grid-column: span 4; }
+#char-select .item {
+  position: relative;
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: var(--font);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+#char-select .sticker {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 21.5cqw;
+  height: 19cqw;
+}
+#char-select .sticker img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity 0.3s;
+  /* シールのような、白いふちどり */
+  filter: drop-shadow(0.7cqw 0 0 #fff) drop-shadow(-0.7cqw 0 0 #fff) drop-shadow(0 0.7cqw 0 #fff) drop-shadow(0 -0.7cqw 0 #fff) drop-shadow(0 0.8cqw 0.8cqw rgba(110, 70, 40, 0.3));
+}
+#char-select .sticker img.ready { opacity: 1; }
+#char-select .lb {
+  position: relative;
+  z-index: 1;
+  margin-top: -0.6cqw;
+  min-width: 17cqw;
+  padding: 0.9cqw 2.2cqw 1.1cqw;
+  font: 900 3.4cqw/1.1 var(--font);
+  color: #5b3b2a;
+  background: #fbf4e3;
+  border: 0.4cqw dashed #e4d0a8;
+  border-radius: 2.2cqw;
+  white-space: nowrap;
+  box-shadow: 0 0.5cqw 0 #e6d3ae;
+}
+#char-select .chk { display: none; }
+
+/* えらばれたキャラ：大きくなり、ピンクの枠・チェック・きらきら */
+#char-select .item.sel { z-index: 2; }
+#char-select .item.sel::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 4%;
+  bottom: 4%;
+  width: 27cqw;
+  transform: translateX(-50%);
+  background: #fff9f4;
+  border: 0.9cqw solid #f8b8d0;
+  border-radius: 7cqw;
+  box-shadow: 0 0 0 1.2cqw #fde6ee, 0 1.6cqw 3cqw rgba(240, 110, 160, 0.5);
+}
+#char-select .item.sel .sticker { transform: scale(1.1); }
+#char-select .item.sel .lb { background: #fbc9db; border: 0.4cqw solid #f6a9c6; box-shadow: 0 0.5cqw 0 #ee93b6; }
+#char-select .item.sel .chk {
+  display: block;
+  position: absolute;
+  z-index: 3;
+  right: calc(50% - 15.5cqw);
+  top: 0;
+  width: 8.6cqw;
+  height: 8.6cqw;
+  border-radius: 50%;
+  background: linear-gradient(#ff8fb5, #f0628f);
+  border: 0.8cqw solid #fff;
+  box-shadow: 0 0.8cqw 1.6cqw rgba(200, 60, 110, 0.45);
+}
+#char-select .item.sel .chk::after {
+  content: '';
+  position: absolute;
+  left: 2.4cqw;
+  top: 1.2cqw;
+  width: 2cqw;
+  height: 3.8cqw;
+  border: solid #fff;
+  border-width: 0 0.9cqw 0.9cqw 0;
+  transform: rotate(40deg);
+}
+#char-select .item.pick .sticker { animation: csPick 0.5s cubic-bezier(.2, .9, .3, 1.4); }
+#char-select .item.pick::before { animation: csFrame 0.45s ease-out; }
+@keyframes csPick { 0% { transform: scale(0.85); } 55% { transform: scale(1.22); } 100% { transform: scale(1.1); } }
+@keyframes csFrame { from { opacity: 0; transform: translateX(-50%) scale(0.8); } }
+#char-select .spark {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  top: 40%;
+  width: 3.2cqw;
+  height: 3.2cqw;
+  background: var(--c);
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  pointer-events: none;
+  animation: csSpark 0.75s ease-out forwards;
+}
+@keyframes csSpark {
+  from { transform: translate(-50%, -50%) scale(0.4); opacity: 1; }
+  to { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.2) rotate(120deg); opacity: 0; }
+}
+
+/* ---- 絵の中のボタン（「もどる」「けってい」）：同じ絵から切り出して重ね、押せることを見せる ---- */
+#char-select .back,
+#char-select .ok {
+  position: absolute;
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+#char-select .back span,
+#char-select .ok span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background-repeat: no-repeat;
+  pointer-events: none;
+  filter: drop-shadow(0 0 1.2cqw rgba(255, 255, 255, 0.7));
+}
+#char-select .ok span { animation: csOk 1.5s ease-in-out infinite; }
+@keyframes csOk { 50% { transform: scale(1.04); filter: drop-shadow(0 0 1.6cqw rgba(255, 255, 255, 0.9)) brightness(1.05); } }
+#char-select .back:active span,
+#char-select .ok:active span { animation: none; transform: translateY(0.8cqw) scale(0.97); filter: brightness(0.94); }
