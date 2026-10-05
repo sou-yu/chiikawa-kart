@@ -35,7 +35,8 @@ function split(im: THREE.InstancedMesh) {
     z0 = Math.min(z0, _p.z); z1 = Math.max(z1, _p.z);
   }
   // 区画の大きさ：最低45m。広い物は縦横5区画程度までにして、描画命令が増えすぎないようにする
-  const cell = Math.max(45, Math.max(x1 - x0, z1 - z0) / 5);
+  // （小さな飾りは userData.divisions で、もっと粗く分けられる）
+  const cell = Math.max(45, Math.max(x1 - x0, z1 - z0) / (im.userData.divisions ?? 5));
   const cols = Math.max(1, Math.ceil((x1 - x0) / cell + 1e-6));
   const rows = Math.max(1, Math.ceil((z1 - z0) / cell + 1e-6));
   if (cols * rows <= 1) return;

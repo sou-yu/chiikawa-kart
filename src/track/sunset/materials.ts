@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { globalUniforms } from '../../core/shaders';
-import { ROAD_TILE, sandRoadTextures, sandTextures } from './textures';
+import { ROAD_TILE, grassTextures, sandRoadTextures, sandTextures } from './textures';
 
 // 夕焼け海岸の素材。夕日・海・ぬれた砂は、なるべく本物らしく
 
@@ -209,19 +209,60 @@ export function oceanMaterial(): THREE.ShaderMaterial {
 }
 
 // ---------- 砂の地面：aWet（ぬれ具合 0..1）で、色を濃くしてつるつるに（夕日が映る）----------
-export function sandGroundMaterial(): THREE.MeshStandardMaterial {
+// aGrass（草の濃さ 0..1）と aRoad（道のふちからの距離）で、砂の上に草の地面を混ぜる。
+// 草は世界座標の絵（大きさの違う 2 枚）で、ノイズで境目をふぞろいに。道ばた（roadIn〜roadOut）は砂のまま、なめらかに草へ。
+export function sandGroundMaterial(roadIn: number, roadOut: number): THREE.MeshStandardMaterial {
   const { map, normal } = sandTextures();
-  const m = new THREE.MeshStandardMaterial({ map, normalMap: normal, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.93, envMapIntensity: 0.7, color: '#ffffff', vertexColors: true });
+  const grass = grassTextures().map;
+  const m = new THREE.MeshStandardMaterial({ map, normalMap: normal, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.93, envMapIntensity: 0.7, color: '#ffffff' });
+  const normalChunk = THREE.ShaderChunk.normal_fragment_maps.replace('mapN.xy *= normalScale;', 'mapN.xy *= normalScale * (1.0 - 0.85 * gM);');
   m.onBeforeCompile = (shader) => {
+    shader.uniforms.uGrassMap = { value: grass };
+    shader.uniforms.uRoad = { value: new THREE.Vector2(roadIn, roadOut) };
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aWet;\nvarying float vWet;')
-      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWet = aWet;');
+      .replace('#include <common>', '#include <common>\nattribute float aWet;\nattribute float aGrass;\nattribute float aRoad;\nvarying float vWet;\nvarying float vGrass;\nvarying float vRoad;\nvarying vec2 vWP;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWet = aWet;\nvGrass = aGrass;\nvRoad = aRoad;\nvWP = position.xz;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vWet;')
-      .replace('#include <map_fragment>', '#include <map_fragment>\ndiffuseColor.rgb *= mix(1.0, 0.62, vWet);')
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.12, vWet * vWet);');
+      .replace(
+        '#include <common>',
+        `#include <common>
+        varying float vWet;
+        varying float vGrass;
+        varying float vRoad;
+        varying vec2 vWP;
+        uniform sampler2D uGrassMap;
+        uniform vec2 uRoad;
+        float gM = 0.0;
+        float gh21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float gnoise(vec2 p) {
+          vec2 i = floor(p), f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          return mix(mix(gh21(i), gh21(i + vec2(1.0, 0.0)), f.x), mix(gh21(i + vec2(0.0, 1.0)), gh21(i + vec2(1.0, 1.0)), f.x), f.y);
+        }`,
+      )
+      .replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        {
+          float n = gnoise(vWP * 0.11) * 0.55 + gnoise(vWP * 0.43) * 0.3 + gnoise(vWP * 1.9) * 0.15;
+          float shoulder = smoothstep(uRoad.x, uRoad.y, vRoad);
+          gM = smoothstep(0.4, 0.62, vGrass * 1.15 + (n - 0.5) * 0.6) * shoulder;
+          vec2 gp = vWP / 5.5;
+          vec3 gc = mix(texture2D(uGrassMap, gp).rgb, texture2D(uGrassMap, gp * 0.29 + 0.37).rgb, 0.4);
+          // 大きな色むら：ところどころ枯れ草いろ、全体は少し落ちついた緑に
+          float dry = smoothstep(0.58, 0.8, gnoise(vWP * 0.05 + 7.3));
+          gc = mix(gc, gc * vec3(1.2, 1.06, 0.6), dry * 0.6);
+          gc *= 0.7 + 0.5 * n;
+          // 砂と草の境は、少し湿って暗い縁に
+          float edge = smoothstep(0.0, 0.3, gM) * (1.0 - smoothstep(0.3, 0.8, gM));
+          diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - 0.2 * edge), gc, gM);
+          diffuseColor.rgb *= mix(1.0, 0.62, vWet * (1.0 - gM));
+        }`,
+      )
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(mix(roughnessFactor, 0.12, vWet * vWet), 0.96, gM);')
+      .replace('#include <normal_fragment_maps>', normalChunk);
   };
-  m.customProgramCacheKey = () => 'sunsetSand';
+  m.customProgramCacheKey = () => 'sunsetSandGrass';
   return m;
 }
 

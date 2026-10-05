@@ -86,6 +86,124 @@ export function sandTextures() {
   return sandCache;
 }
 
+// ---------- 草の地面（ヤシの林の下）：深い緑と黄緑の色むら・草の葉の筋・クローバー・小さな野の花・ところどころ枯れ草 ----------
+let grassCache: { map: THREE.CanvasTexture } | null = null;
+export function grassTextures() {
+  if (grassCache) return grassCache;
+  const S = 512;
+  const [c, g] = makeCanvas(S, S);
+  const rand = mulberry32(31);
+  g.fillStyle = '#5c9a36';
+  g.fillRect(0, 0, S, S);
+  // 大きな色むら：濃い緑・明るい黄緑・ところどころ枯れ草
+  for (let i = 0; i < 70; i++) {
+    const r = 30 + rand() * 90;
+    const k = rand();
+    const col = k < 0.4 ? 'rgba(36,98,38,0.34)' : k < 0.8 ? 'rgba(150,196,72,0.3)' : 'rgba(196,178,92,0.22)';
+    wrap(S, S, rand() * S, rand() * S, r, (x, y) => {
+      const grd = g.createRadialGradient(x, y, 0, x, y, r);
+      grd.addColorStop(0, col);
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = grd;
+      g.fillRect(x - r, y - r, r * 2, r * 2);
+    });
+  }
+  // 草の葉の筋（短い線を、たくさん）。根もとは暗く、先は明るく
+  const greens = ['rgba(30,86,32,0.55)', 'rgba(62,128,44,0.5)', 'rgba(104,162,56,0.5)', 'rgba(150,198,78,0.5)', 'rgba(188,214,104,0.4)'];
+  g.lineCap = 'round';
+  for (let i = 0; i < 11000; i++) {
+    const x = rand() * S, y = rand() * S;
+    const len = 5 + rand() * 9;
+    const a = -Math.PI / 2 + (rand() - 0.5) * 1.3;
+    const col = greens[Math.floor(rand() * greens.length)];
+    const lw = 1 + rand() * 1.2;
+    wrap(S, S, x, y, len, (px, py) => {
+      const ex = px + Math.cos(a) * len, ey = py + Math.sin(a) * len;
+      g.strokeStyle = col;
+      g.lineWidth = lw;
+      g.beginPath();
+      g.moveTo(px, py);
+      g.quadraticCurveTo(px + Math.cos(a + 0.5) * len * 0.5, py + Math.sin(a + 0.5) * len * 0.5, ex, ey);
+      g.stroke();
+    });
+  }
+  // クローバー（3 つの丸）
+  for (let i = 0; i < 90; i++) {
+    const x = rand() * S, y = rand() * S, r = 2.6 + rand() * 2;
+    wrap(S, S, x, y, r * 2, (px, py) => {
+      g.fillStyle = rand() < 0.5 ? 'rgba(112,178,72,0.85)' : 'rgba(70,140,58,0.85)';
+      for (let k = 0; k < 3; k++) {
+        const t = (k / 3) * TAU + rand() * 0.3;
+        g.beginPath();
+        g.arc(px + Math.cos(t) * r * 0.8, py + Math.sin(t) * r * 0.8, r * 0.75, 0, TAU);
+        g.fill();
+      }
+    });
+  }
+  // 小さな野の花（白・黄・ピンク）
+  for (let i = 0; i < 46; i++) {
+    const x = rand() * S, y = rand() * S;
+    const col = ['#fffaf0', '#ffe46a', '#ffb3c8', '#ffffff'][Math.floor(rand() * 4)];
+    wrap(S, S, x, y, 6, (px, py) => {
+      g.fillStyle = col;
+      for (let k = 0; k < 5; k++) {
+        const t = (k / 5) * TAU;
+        g.beginPath();
+        g.arc(px + Math.cos(t) * 2.2, py + Math.sin(t) * 2.2, 1.7, 0, TAU);
+        g.fill();
+      }
+      g.fillStyle = '#f2a620';
+      g.beginPath();
+      g.arc(px, py, 1.3, 0, TAU);
+      g.fill();
+    });
+  }
+  const map = repeatTex(toTexture(c), 1, 1);
+  map.anisotropy = 8;
+  grassCache = { map };
+  return grassCache;
+}
+
+// ---------- 茂みの葉（つやのある葉っぱが重なった模様）----------
+let foliageCache: THREE.CanvasTexture | null = null;
+export function foliageTexture(): THREE.CanvasTexture {
+  if (foliageCache) return foliageCache;
+  const S = 256;
+  const [c, g] = makeCanvas(S, S);
+  const rand = mulberry32(53);
+  g.fillStyle = '#2f6e3a';
+  g.fillRect(0, 0, S, S);
+  const cols = ['#2a6234', '#3a8040', '#4a9448', '#5ba452', '#76b85c'];
+  for (let i = 0; i < 380; i++) {
+    const x = rand() * S, y = rand() * S;
+    const len = 12 + rand() * 16, wd = len * (0.34 + rand() * 0.12);
+    const a = rand() * TAU;
+    const col = cols[Math.floor(rand() * cols.length)];
+    wrap(S, S, x, y, len, (px, py) => {
+      g.save();
+      g.translate(px, py);
+      g.rotate(a);
+      g.fillStyle = col;
+      g.beginPath();
+      g.ellipse(0, 0, len, wd, 0, 0, TAU);
+      g.fill();
+      g.strokeStyle = 'rgba(20,60,28,0.45)';
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(-len, 0);
+      g.lineTo(len, 0);
+      g.stroke();
+      g.fillStyle = 'rgba(214,240,150,0.22)';
+      g.beginPath();
+      g.ellipse(-len * 0.1, -wd * 0.35, len * 0.7, wd * 0.28, 0, 0, TAU);
+      g.fill();
+      g.restore();
+    });
+  }
+  foliageCache = repeatTex(toTexture(c), 3, 2);
+  return foliageCache;
+}
+
 // ---------- 砂の道：わだち・タイヤの跡・小さな貝殻とヒトデ ----------
 // 横（u）は道はば全体、縦（v）は ROAD_TILE メートルで 1 回くり返す
 export const ROAD_TILE = 14;

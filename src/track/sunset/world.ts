@@ -1,12 +1,28 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { mulberry32 } from '../../core/random';
-import { applyWind } from '../../core/shaders';
+import { applyWind, globalUniforms } from '../../core/shaders';
 import { dashPads, type Landmarks } from '../Landmarks';
 import type { Track, TrackProjection } from '../Track';
 import { scallopFanGeometry, shellGate, starfishGeometry } from './gate';
 import { SEA_Y, oceanMaterial, sandGroundMaterial, shellMaterial, sunsetSkyMaterial } from './materials';
-import { chevronTexture, driftwoodTexture, frondTexture, umbrellaTexture } from './textures';
+import {
+  beachBallGeometry,
+  birdGeometry,
+  boatGeometry,
+  brainCoralGeometry,
+  bushGeometry,
+  daisyGeometry,
+  fanCoralGeometry,
+  fernGeometry,
+  floatRingGeometry,
+  grassTuftGeometry,
+  hibiscusGeometry,
+  staghornGeometry,
+  surfboardGeometry,
+  tableCoralGeometry,
+} from './props';
+import { chevronTexture, driftwoodTexture, foliageTexture, frondTexture, umbrellaTexture } from './textures';
 
 // 夕焼け海岸の世界。動かない物は static に入れる（あとで区画分けして、画面外は描かない）
 const TAU = Math.PI * 2;
@@ -133,30 +149,144 @@ export function buildSunsetWorld(track: Track): SunsetWorld {
   };
   const _v = new THREE.Vector3();
 
-  const X0 = -520, X1 = 620, Z0 = -620, Z1 = 660, STEP = 5;
-  const NX = Math.round((X1 - X0) / STEP), NZ = Math.round((Z1 - Z0) / STEP);
-  const tpos: number[] = [], tuv: number[] = [], tcol: number[] = [], twet: number[] = [];
-  const hs = new Float32Array((NX + 1) * (NZ + 1));
-  const ds = new Float32Array((NX + 1) * (NZ + 1));
-  const grassC = new THREE.Color('#b9c48a');
-  const c = new THREE.Color();
+  // ---------- コースぞいを歩くための道具 ----------
+  const _a = new THREE.Vector3();
+  const walk = (lat: number, step: number, cb: (p: THREE.Vector3, yaw: number, t: number) => void) => {
+    const N = track.pts.length;
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i < N; i++) pts.push(track.place((i + 0.5) / N, lat, new THREE.Vector3()));
+    let s = 0;
+    for (let i = 0; i < N; i++) {
+      const a = pts[i], b = pts[(i + 1) % N];
+      const seg = a.distanceTo(b);
+      while (s < seg) {
+        _a.lerpVectors(a, b, s / seg);
+        cb(_a, Math.atan2(b.x - a.x, b.z - a.z), (i + s / seg) / N);
+        s += step;
+      }
+      s -= seg;
+    }
+  };
+  // その場所が、道からどれだけ離れているか
+  const roadDist = (x: number, z: number) => {
+    track.project(_v.set(x, 0, z), proj);
+    return Math.abs(proj.lateral);
+  };
+  const groundH = (x: number, z: number) => heightAt(x, z).h;
+
+  // ---------- ヤシの位置（地面の草の濃さにも使うので、地形より先に決める）----------
+  interface Palm { x: number; y: number; z: number; yaw: number; lean: number; s: number; sy: number }
+  const palms: Palm[] = [];
+  {
+    const spots: [number, number][] = [];
+    const tryPalm = (x: number, z: number, s: number) => {
+      if (isWater(x, z - 0) || x < shoreX(z) + 3) return;
+      if (roadDist(x, z) < wall + 2.5) return;
+      for (const [px, pz] of spots) if ((px - x) ** 2 + (pz - z) ** 2 < 16) return;
+      spots.push([x, z]);
+      palms.push({ x, y: groundH(x, z) - 0.1, z, yaw: R(0, TAU), lean: R(0.05, 0.22), s, sy: R(0.9, 1.15) });
+    };
+    // 浜辺の道の東がわ（海と反対）に並ぶヤシ
+    walk(-(wall + 6), 9, (p) => tryPalm(p.x + R(-2, 2), p.z + R(-3, 3), R(0.85, 1.2)));
+    walk(-(wall + 15), 13, (p) => tryPalm(p.x + R(-4, 4), p.z + R(-4, 4), R(0.9, 1.3)));
+    walk(wall + 7, 16, (p) => {
+      if (!isWater(p.x - 20, p.z)) tryPalm(p.x + R(-3, 3), p.z + R(-3, 3), R(0.85, 1.2));
+    });
+    // 内側のヤシ林
+    for (let i = 0; i < 160; i++) tryPalm(R(-5, 130), R(-150, 210), R(0.8, 1.3));
+    // 岬のまわり
+    for (let i = 0; i < 30; i++) tryPalm(cape.x + R(-40, 40), cape.y + R(-40, 30), R(0.8, 1.15));
+  }
+
+  // 地形の格子の間隔：道のまわり（d0〜d1）は 5m、外へいくほど粗く（最大 40m）。
+  // 格子は縦横の線で区切るだけなので、ひびわれのない 1 枚の地形のまま、三角形をおよそ 7 割減らせる
+  const stretched = (lo: number, hi: number, d0: number, d1: number, step = 5, grow = 1.2, maxStep = 40): number[] => {
+    const n = Math.ceil((d1 - d0) / step);
+    const s = (d1 - d0) / n;
+    const a: number[] = [];
+    for (let i = 0; i <= n; i++) a.push(d0 + i * s);
+    for (let x = d1, h = s; ; ) {
+      h = Math.min(maxStep, h * grow);
+      if (x + h >= hi - h * 0.5) {
+        a.push(hi);
+        break;
+      }
+      x += h;
+      a.push(x);
+    }
+    const low: number[] = [];
+    for (let x = d0, h = s; ; ) {
+      h = Math.min(maxStep, h * grow);
+      if (x - h <= lo + h * 0.5) {
+        low.push(lo);
+        break;
+      }
+      x -= h;
+      low.push(x);
+    }
+    return [...low.reverse(), ...a];
+  };
+  // arr[i] <= v < arr[i+1] となる i
+  const findIdx = (arr: number[], v: number) => {
+    let lo = 0, hi = arr.length - 2;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (arr[mid] <= v) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+  const X0 = -520, X1 = 620, Z0 = -620, Z1 = 660;
+  const xs = stretched(X0, X1, -190, 210), zs = stretched(Z0, Z1, -230, 330);
+  const NX = xs.length - 1, NZ = zs.length - 1;
+  const NV = (NX + 1) * (NZ + 1);
+  const tpos: number[] = [], tuv: number[] = [], twet: number[] = [];
+  const hs = new Float32Array(NV);
+  const ds = new Float32Array(NV);
+  const grassA = new Float32Array(NV); // 草の濃さ 0..1（ヤシの林・内陸・岬の上）
+  const roadA = new Float32Array(NV); // 道の中心からの距離（道ばたの砂のために）
   for (let j = 0; j <= NZ; j++) {
     for (let i = 0; i <= NX; i++) {
-      const x = X0 + i * STEP, z = Z0 + j * STEP;
-      const { h, wet } = heightAt(x, z);
+      const x = xs[i], z = zs[j];
+      const { h, wet, road } = heightAt(x, z);
       const k = j * (NX + 1) + i;
       hs[k] = h;
       ds[k] = x - shoreX(z);
+      roadA[k] = Math.min(80, road);
       tpos.push(x, h, z);
       tuv.push(x / 7, z / 7);
       twet.push(wet);
-      // 内陸の、草の生えたところ（ヤシ林の下）
+      // 内陸（水ぎわから遠いところ）と、岬の上は緑
       const d = ds[k];
-      const g = THREE.MathUtils.smoothstep(d, 45, 90) * (0.5 + 0.5 * Math.sin(x * 0.02 + z * 0.013));
-      c.copy(WHITE).lerp(grassC, g * 0.75);
-      tcol.push(c.r, c.g, c.b);
+      const dc = Math.hypot(x - cape.x, z - cape.y);
+      grassA[k] = Math.max(
+        THREE.MathUtils.smoothstep(d, 22, 60) * (0.82 + 0.18 * Math.sin(x * 0.02 + z * 0.013)),
+        0.95 * THREE.MathUtils.smoothstep(dc, 44, 20) * THREE.MathUtils.smoothstep(d, 2, 12),
+      );
     }
   }
+  // ヤシの林の下は緑（ヤシの位置から半径 約 12m をぼかして足す）
+  for (const p of palms) {
+    const i0 = findIdx(xs, p.x - 12), i1 = Math.min(NX, findIdx(xs, p.x + 12) + 1);
+    const j0 = findIdx(zs, p.z - 12), j1 = Math.min(NZ, findIdx(zs, p.z + 12) + 1);
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const k = j * (NX + 1) + i;
+        const dd = Math.hypot(xs[i] - p.x, zs[j] - p.z);
+        const g = 1 - THREE.MathUtils.smoothstep(dd, 3.5, 12);
+        if (g > grassA[k] && ds[k] > 5) grassA[k] = g;
+      }
+    }
+  }
+  // 草の濃さをあとから引けるように（草むら・花を置く場所の判定）。道ばたの砂のぶんは別に引く
+  const grassAt = (x: number, z: number) => {
+    const i = findIdx(xs, x), j = findIdx(zs, z);
+    const u = THREE.MathUtils.clamp((x - xs[i]) / (xs[i + 1] - xs[i]), 0, 1), v = THREE.MathUtils.clamp((z - zs[j]) / (zs[j + 1] - zs[j]), 0, 1);
+    const k = j * (NX + 1) + i;
+    return (grassA[k] * (1 - u) + grassA[k + 1] * u) * (1 - v) + (grassA[k + NX + 1] * (1 - u) + grassA[k + NX + 2] * u) * v;
+  };
+  const ROAD_IN = wall + 0.5, ROAD_OUT = wall + 3.2;
+
   const tidx: number[] = [];
   const sidx: number[] = [];
   for (let j = 0; j < NZ; j++) {
@@ -170,11 +300,12 @@ export function buildSunsetWorld(track: Track): SunsetWorld {
   const tg = new THREE.BufferGeometry();
   tg.setAttribute('position', new THREE.Float32BufferAttribute(tpos, 3));
   tg.setAttribute('uv', new THREE.Float32BufferAttribute(tuv, 2));
-  tg.setAttribute('color', new THREE.Float32BufferAttribute(tcol, 3));
   tg.setAttribute('aWet', new THREE.Float32BufferAttribute(twet, 1));
+  tg.setAttribute('aGrass', new THREE.BufferAttribute(grassA, 1));
+  tg.setAttribute('aRoad', new THREE.BufferAttribute(roadA, 1));
   tg.setIndex(tidx);
   tg.computeVertexNormals();
-  const terrain = new THREE.Mesh(tg, sandGroundMaterial());
+  const terrain = new THREE.Mesh(tg, sandGroundMaterial(ROAD_IN, ROAD_OUT));
   terrain.receiveShadow = true;
   group.add(terrain);
 
@@ -183,7 +314,7 @@ export function buildSunsetWorld(track: Track): SunsetWorld {
   for (let j = 0; j <= NZ; j++) {
     for (let i = 0; i <= NX; i++) {
       const k = j * (NX + 1) + i;
-      spos.push(X0 + i * STEP, SEA_Y, Z0 + j * STEP);
+      spos.push(xs[i], SEA_Y, zs[j]);
       sdep.push(SEA_Y - hs[k]);
       sshore.push(Math.max(-40, Math.min(5, ds[k])));
     }
@@ -240,31 +371,6 @@ export function buildSunsetWorld(track: Track): SunsetWorld {
     add(isl.build(g, new THREE.MeshBasicMaterial({ color: '#7c5f8a', fog: true }), false, false));
   }
 
-  // ---------- コースぞいを歩くための道具 ----------
-  const _a = new THREE.Vector3();
-  const walk = (lat: number, step: number, cb: (p: THREE.Vector3, yaw: number, t: number) => void) => {
-    const N = track.pts.length;
-    const pts: THREE.Vector3[] = [];
-    for (let i = 0; i < N; i++) pts.push(track.place((i + 0.5) / N, lat, new THREE.Vector3()));
-    let s = 0;
-    for (let i = 0; i < N; i++) {
-      const a = pts[i], b = pts[(i + 1) % N];
-      const seg = a.distanceTo(b);
-      while (s < seg) {
-        _a.lerpVectors(a, b, s / seg);
-        cb(_a, Math.atan2(b.x - a.x, b.z - a.z), (i + s / seg) / N);
-        s += step;
-      }
-      s -= seg;
-    }
-  };
-  // その場所が、道からどれだけ離れているか
-  const roadDist = (x: number, z: number) => {
-    track.project(_v.set(x, 0, z), proj);
-    return Math.abs(proj.lateral);
-  };
-  const groundH = (x: number, z: number) => heightAt(x, z).h;
-
   // ---------- ロープと木の杭の柵（道のふち。浅瀬では水の中から立つ）----------
   {
     const posts = new Bag();
@@ -295,34 +401,90 @@ export function buildSunsetWorld(track: Track): SunsetWorld {
   {
     const trunks = new Bag();
     const crowns = new Bag();
-    const spots: [number, number][] = [];
-    const tryPalm = (x: number, z: number, s: number) => {
-      if (isWater(x, z - 0) || x < shoreX(z) + 3) return;
-      if (roadDist(x, z) < wall + 2.5) return;
-      for (const [px, pz] of spots) if ((px - x) ** 2 + (pz - z) ** 2 < 16) return;
-      spots.push([x, z]);
-      const y = groundH(x, z) - 0.1;
-      const yaw = R(0, TAU);
-      const lean = R(0.05, 0.22);
-      const sy = R(0.9, 1.15);
-      trunks.add(mat4(x, y, z, yaw, s, s * sy, s, 0, lean));
+    // 1 本ごとに、幹と葉の色あいを少しずつ変える（インスタンスの色。描画の重さは変わらない）
+    const trunkTints = ['#ffffff', '#f2e4d6', '#e8d2bc', '#ffeedd', '#f6dccb'];
+    const leafTints = ['#ffffff', '#e6f5ce', '#f6ffe0', '#d6eab8', '#f0f8d8'];
+    for (const p of palms) {
+      trunks.add(mat4(p.x, p.y, p.z, p.yaw, p.s, p.s * p.sy, p.s, 0, p.lean), trunkTints[Math.floor(rand() * trunkTints.length)]);
       // 葉の冠は幹のてっぺんに（幹のかたむきに合わせて）
-      crowns.add(trunkTopMatrix(x, y, z, yaw, s, sy, lean));
-    };
-    // 浜辺の道の東がわ（海と反対）に並ぶヤシ
-    walk(-(wall + 6), 9, (p) => tryPalm(p.x + R(-2, 2), p.z + R(-3, 3), R(0.85, 1.2)));
-    walk(-(wall + 15), 13, (p) => tryPalm(p.x + R(-4, 4), p.z + R(-4, 4), R(0.9, 1.3)));
-    walk(wall + 7, 16, (p) => {
-      if (!isWater(p.x - 20, p.z)) tryPalm(p.x + R(-3, 3), p.z + R(-3, 3), R(0.85, 1.2));
-    });
-    // 内側のヤシ林
-    for (let i = 0; i < 160; i++) tryPalm(R(-5, 130), R(-150, 210), R(0.8, 1.3));
-    // 岬のまわり
-    for (let i = 0; i < 30; i++) tryPalm(cape.x + R(-40, 40), cape.y + R(-40, 30), R(0.8, 1.15));
+      crowns.add(trunkTopMatrix(p.x, p.y, p.z, p.yaw, p.s, p.sy, p.lean), leafTints[Math.floor(rand() * leafTints.length)]);
+    }
     const trunkMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 });
     add(trunks.build(palmTrunkGeometry(), trunkMat, true, false, 520));
     const frondMat = applyWind(new THREE.MeshLambertMaterial({ map: frondTexture(), alphaTest: 0.35, side: THREE.DoubleSide, color: '#f4ffe0', emissive: '#22381a' }), 0.18, 3, 'y');
     add(crowns.build(palmCrownGeometry(), frondMat, true, false, 520));
+  }
+
+  // ---------- 草むら・野の花・シダ（草の地面の上）----------
+  // 茂み（道ばた・岬の上）の形と、葉っぱ模様の材質
+  const bushGeo = bushGeometry();
+  const bushMat = new THREE.MeshLambertMaterial({ map: foliageTexture(), vertexColors: true, color: '#ffffff' });
+  {
+    const tufts = new Bag();
+    const dune = new Bag();
+    const daisies = new Bag();
+    const ferns = new Bag();
+    const greens = ['#86b248', '#92bc50', '#73a240', '#a2c660', '#659639', '#b0cb6c', '#558a40'];
+    const golds = ['#c9bb62', '#bfae58', '#d6c874', '#a9b95a'];
+    const pastels = ['#ffffff', '#fff3a6', '#ffc0d4', '#ffffff', '#fff0f5'];
+    const fernCols = ['#4c9a3c', '#3f8a38', '#5aa844', '#2f7a38'];
+    const pick = <T>(a: T[]) => a[Math.floor(rand() * a.length)];
+    const _p = new THREE.Vector3();
+    // 草の濃いところで、道ばたの砂（柵の外 3m）より外がわ
+    const ok = (x: number, z: number, lo: number, hi: number) => {
+      const g = grassAt(x, z);
+      return g >= lo && g <= hi && !isWater(x, z) && x > shoreX(z) + 6 && roadDist(x, z) > ROAD_OUT + 0.2;
+    };
+    for (let tries = 0; tufts.size < 3200 && tries < 90000; tries++) {
+      let x: number, z: number;
+      if (rand() < 0.4 && palms.length) {
+        // ヤシの根もと
+        const pl = palms[Math.floor(rand() * palms.length)];
+        const a = R(0, TAU), r = R(0.8, 9);
+        x = pl.x + Math.cos(a) * r;
+        z = pl.z + Math.sin(a) * r;
+      } else {
+        // 道ばたの外がわ（道に近いほど多く）
+        track.place(rand(), (rand() < 0.5 ? -1 : 1) * (wall + 2.6 + 28 * Math.pow(rand(), 1.8)), _p);
+        x = _p.x;
+        z = _p.z;
+      }
+      if (!ok(x, z, 0.72, 2)) continue;
+      const s = R(0.8, 1.4);
+      const y = groundH(x, z) - 0.03;
+      tufts.add(mat4(x, y, z, R(0, TAU), s, s * R(0.8, 1.3), s), pick(greens));
+      if (rand() < 0.16) daisies.add(mat4(x + R(-0.6, 0.6), y + R(0.14, 0.3), z + R(-0.6, 0.6), R(0, TAU), 1.4), pick(pastels));
+    }
+    // 草のふち（砂との境）には、金色がかった浜辺の草
+    for (let tries = 0; dune.size < 300 && tries < 20000; tries++) {
+      track.place(rand(), (rand() < 0.5 ? -1 : 1) * R(wall + 3, wall + 22), _p);
+      if (!ok(_p.x, _p.z, 0.12, 0.72)) continue;
+      const s = R(0.9, 1.5);
+      dune.add(mat4(_p.x, groundH(_p.x, _p.z) - 0.03, _p.z, R(0, TAU), s, s * R(1.1, 1.9), s), pick(golds));
+    }
+    // ヤシの足もとのシダ
+    for (let tries = 0; ferns.size < 160 && tries < 4000 && palms.length; tries++) {
+      const pl = palms[Math.floor(rand() * palms.length)];
+      const a = R(0, TAU), r = R(1.4, 5.5);
+      const x = pl.x + Math.cos(a) * r, z = pl.z + Math.sin(a) * r;
+      if (!ok(x, z, 0.6, 2)) continue;
+      const s = R(0.9, 1.5);
+      ferns.add(mat4(x, groundH(x, z) - 0.02, z, R(0, TAU), s, s * R(0.85, 1.2), s), pick(fernCols));
+    }
+    // 草むらは、画質の設定（'grassField' の本数）でも減らせる
+    const tuftGeo = grassTuftGeometry();
+    const tuftMat = applyWind(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }), 0.22, 0.7, 'y');
+    for (const bag of [tufts, dune]) {
+      const m = bag.build(tuftGeo, tuftMat, false, false, 52);
+      if (m) {
+        m.name = 'grassField';
+        m.userData.fullCount = m.count;
+        m.userData.divisions = 3;
+        add(m);
+      }
+    }
+    add(daisies.build(daisyGeometry(), new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }), false, false, 70));
+    add(ferns.build(fernGeometry(), applyWind(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }), 0.12, 1.2, 'y'), false, false, 110));
   }
 
   // ---------- ビーチパラソルとタオル（浜辺の、道と海のあいだ）----------
@@ -351,37 +513,54 @@ export function buildSunsetWorld(track: Track): SunsetWorld {
 
   // ---------- ハイビスカスの茂み（道ばた）----------
   {
+    // 茂みの色は、葉っぱ模様（もともと緑）に掛ける、ほぼ白の色ちがい。花は、直径 約 1m の大きなハイビスカス（上向き〜外向き）
     const bushes = new Bag();
     const flowers = new Bag();
-    const leafy = ['#3f8a4a', '#4f9a50', '#367a46'];
-    const petals = ['#ff3d4f', '#ff5a7a', '#ff8a3d', '#ff6f9a', '#ffd04a'];
-    walk(0, 7, (p, yaw) => {
+    const leafy = ['#ffffff', '#dcffc8', '#f2ffd2', '#c8f0d8', '#e8ffe0'];
+    const petals = ['#ff3b4f', '#ff4f7e', '#ff8a3d', '#ff6fa6', '#ffd23f', '#ff2d6f', '#ff5a3c'];
+    const up = new THREE.Vector3(0, 1, 0);
+    const dir = new THREE.Vector3();
+    const qd = new THREE.Quaternion();
+    const qs = new THREE.Quaternion();
+    const one = new THREE.Vector3();
+    walk(0, 6.5, (p, yaw) => {
       for (const side of [-1, 1]) {
-        if (rand() < 0.55) continue;
-        const lat = side * (wall + R(1.4, 4));
+        if (rand() < 0.45) continue;
+        const lat = side * (wall + R(1.6, 5));
         const x = p.x + Math.cos(yaw) * lat, z = p.z - Math.sin(yaw) * lat;
         if (isWater(x, z) || x < shoreX(z) + 1) continue;
         const y = groundH(x, z);
-        const s = R(0.9, 1.6);
-        bushes.add(mat4(x, y + s * 0.45, z, R(0, TAU), s * 1.2, s * 0.8, s), leafy[Math.floor(rand() * 3)]);
-        const n = 4 + Math.floor(rand() * 5);
+        const s = R(1.3, 2.1);
+        bushes.add(mat4(x, y + s * 0.45, z, R(0, TAU), s * 1.15, s * 0.85, s), leafy[Math.floor(rand() * leafy.length)]);
+        const n = 3 + Math.floor(rand() * 4);
         for (let i = 0; i < n; i++) {
-          const a = R(0, TAU), el = R(0.25, 1.1);
-          const fx = x + Math.cos(a) * Math.cos(el) * s * 1.15, fz = z + Math.sin(a) * Math.cos(el) * s;
-          const fy = y + s * 0.45 + Math.sin(el) * s * 0.78;
-          flowers.add(mat4(fx, fy, fz, a, R(0.22, 0.32), R(0.22, 0.32), R(0.22, 0.32), -el, 0), petals[Math.floor(rand() * petals.length)]);
+          const a = R(0, TAU), el = R(0.35, 1.2);
+          dir.set(Math.cos(a) * Math.cos(el), Math.sin(el), Math.sin(a) * Math.cos(el));
+          qd.setFromUnitVectors(up, dir);
+          qs.setFromAxisAngle(up, R(0, TAU));
+          const m = new THREE.Matrix4().compose(
+            new THREE.Vector3(x + dir.x * s * 1.35, y + s * 0.45 + dir.y * s * 0.95, z + dir.z * s * 1.2),
+            qd.clone().multiply(qs),
+            one.setScalar(R(0.85, 1.2)),
+          );
+          flowers.add(m, petals[Math.floor(rand() * petals.length)]);
         }
       }
     });
-    add(bushes.build(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshLambertMaterial({ color: '#ffffff', flatShading: false }), true, false, 300));
-    add(flowers.build(hibiscusGeometry(), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.55, side: THREE.DoubleSide }), false, false, 160));
+    // 小さな飾りは、区画の分けかたを粗くして（3×3）、描画の回数を抑える
+    for (const m of [
+      bushes.build(bushGeo, bushMat, false, false, 200),
+      flowers.build(hibiscusGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, side: THREE.DoubleSide }), false, false, 170),
+    ]) {
+      if (m) m.userData.divisions = 3;
+      add(m);
+    }
   }
 
-  // ---------- 貝殻とヒトデ（砂の上）・サンゴ（浅瀬）----------
+  // ---------- 貝殻とヒトデ（砂の上）----------
   {
     const shells = new Bag();
     const stars = new Bag();
-    const corals = new Bag();
     for (let i = 0; i < 420; i++) {
       const t = rand();
       const p = track.place(t, (rand() < 0.5 ? -1 : 1) * R(wall + 0.8, wall + 12));
@@ -390,17 +569,84 @@ export function buildSunsetWorld(track: Track): SunsetWorld {
       if (rand() < 0.75) shells.add(mat4(p.x, y, p.z, R(0, TAU), R(0.18, 0.32), R(0.18, 0.32), R(0.18, 0.32), -Math.PI / 2 + R(-0.2, 0.2)), ['#fff1e6', '#ffd6d6', '#ffe9c9', '#f6d8ff'][Math.floor(rand() * 4)]);
       else stars.add(mat4(p.x, y + 0.04, p.z, R(0, TAU), R(0.22, 0.38), R(0.22, 0.38), R(0.22, 0.38), -Math.PI / 2), ['#ff8a70', '#ff6f8a', '#ffb36a'][Math.floor(rand() * 3)]);
     }
-    // 浅瀬のサンゴ（道から少し離れた水の中）
-    for (let i = 0; i < 70; i++) {
-      const t = R(0.17, 0.35);
-      const p = track.place(t, (rand() < 0.5 ? -1 : 1) * R(wall + 3, wall + 22));
-      if (!isWater(p.x, p.z)) continue;
-      const y = Math.max(-1.2, groundH(p.x, p.z));
-      corals.add(mat4(p.x, y, p.z, R(0, TAU), R(0.7, 1.4)), ['#ff8fae', '#ff7a8a', '#c89bff', '#ffb38a'][Math.floor(rand() * 4)]);
+    // 小さな貝殻は軽い形で十分（大きなゲートは細かいまま）
+    for (const m of [
+      shells.build(scallopFanGeometry(0.05, 1, 9, 0.12, 0.04, [2, 2]), shellMaterial(false), false, false, 110),
+      stars.build(starfishGeometry(1), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.6 }), false, false, 110),
+    ]) {
+      if (m) m.userData.divisions = 3;
+      add(m);
     }
-    add(shells.build(scallopFanGeometry(0.05, 1, 9, 0.12, 0.04), shellMaterial(false), false, false, 110));
-    add(stars.build(starfishGeometry(1), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.6 }), false, false, 110));
-    add(corals.build(coralGeometry(), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.55 }), false, false, 260));
+  }
+
+  // ---------- サンゴ礁（浅瀬と浜ぎわ）：水の上に頭を出す岩の小山に、4 種類のサンゴを寄せて置く ----------
+  {
+    const mounds = new Bag();
+    const stag = new Bag();
+    const table = new Bag();
+    const brain = new Bag();
+    const fan = new Bag();
+    const palette = ['#ff6f91', '#ff9a5c', '#c58bff', '#ffd35c', '#7fe0d0', '#ff7a8a', '#f7a6ff'];
+    const rockC = ['#bfa08e', '#a98c7e', '#c7a994'];
+    const pick = (a: string[]) => a[Math.floor(rand() * a.length)];
+    const reef = (x: number, z: number, s: number) => {
+      const top = SEA_Y + 0.25; // 水面から 0.25m 頭を出す
+      mounds.add(mat4(x, top - 0.9 * s, z, R(0, TAU), s * R(1.0, 1.3), 0.9 * s, s * R(1.0, 1.3)), pick(rockC));
+      const n = 3 + Math.floor(rand() * 4);
+      for (let i = 0; i < n; i++) {
+        const a = R(0, TAU), r = R(0, 0.7) * s;
+        const base = top - 0.12 - 0.3 * (r / (0.7 * s)); // ふちほど低い
+        const sc = R(0.9, 1.45), yaw = R(0, TAU), col = pick(palette);
+        const cx = x + Math.cos(a) * r, cz = z + Math.sin(a) * r;
+        const k = rand();
+        if (k < 0.34) stag.add(mat4(cx, base, cz, yaw, sc * 1.1, sc * R(1, 1.25), sc * 1.1), col);
+        else if (k < 0.58) table.add(mat4(cx, base, cz, yaw, sc * 0.95, sc * 0.9, sc * 0.95), col);
+        else if (k < 0.8) brain.add(mat4(cx, base + 0.05, cz, yaw, sc, sc, sc), col);
+        else fan.add(mat4(cx, base, cz, yaw, sc * 1.1, sc * 1.1, sc * 1.1), col);
+      }
+    };
+    // 浅瀬の、道の両がわ（柵の外 3〜16m。道から見えるように近めに）
+    for (let i = 0; i < 80 && mounds.size < 22; i++) {
+      const p = track.place(R(0.16, 0.36), (rand() < 0.5 ? -1 : 1) * R(wall + 3, wall + 16));
+      if (!isWater(p.x, p.z)) continue;
+      reef(p.x, p.z, R(1.1, 1.9));
+    }
+    // 浜ぎわにも、数か所
+    for (let i = 0; i < 30 && mounds.size < 30; i++) {
+      const z = R(-300, 420);
+      const x = shoreX(z) - R(2, 14);
+      if (roadDist(x, z) < wall + 4) continue;
+      reef(x, z, R(1.0, 1.6));
+    }
+    // 水の中で暗くならないよう、わずかに自分で光らせる
+    const coralMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5, emissive: '#4a1a2a', emissiveIntensity: 0.35, side: THREE.DoubleSide });
+    add(mounds.build(rockGeometry(), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.9, flatShading: true }), true, true, 260));
+    add(stag.build(staghornGeometry(), coralMat, false, false, 260));
+    add(table.build(tableCoralGeometry(), coralMat, false, false, 260));
+    add(brain.build(brainCoralGeometry(), coralMat, false, false, 260));
+    add(fan.build(fanCoralGeometry(), coralMat, false, false, 260));
+  }
+
+  // ---------- 浜のこもの：サーフボード・ビーチボール・浮き輪（スタート・ゴール付近が多め）----------
+  {
+    const boards = new Bag();
+    const balls = new Bag();
+    const rings = new Bag();
+    const boardCols = ['#ff7aa8', '#4fd0d8', '#ffd04a', '#ff9a4a', '#8e7bff'];
+    for (let i = 0; i < 500 && (boards.size < 16 || balls.size < 10 || rings.size < 8); i++) {
+      const near = rand() < 0.8;
+      const t = near ? (rand() < 0.5 ? R(0, 0.15) : R(0.92, 1)) : rand();
+      const p = track.place(t, (rand() < 0.5 ? -1 : 1) * R(wall + 3.5, wall + 13));
+      if (isWater(p.x, p.z) || p.x < shoreX(p.z) + 3) continue;
+      const y = groundH(p.x, p.z);
+      const k = rand();
+      if (k < 0.45 && boards.size < 16) boards.add(mat4(p.x, y + 0.85, p.z, R(0, TAU), 1, 1, 1, R(-0.22, 0.22), R(-0.22, 0.22)), boardCols[Math.floor(rand() * boardCols.length)]);
+      else if (k < 0.75 && balls.size < 10) balls.add(mat4(p.x, y + 0.34, p.z, R(0, TAU), 1));
+      else if (rings.size < 8) rings.add(mat4(p.x, y + 0.14, p.z, R(0, TAU), 1));
+    }
+    add(boards.build(surfboardGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4 }), true, false, 220));
+    add(balls.build(beachBallGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45 }), true, false, 220));
+    add(rings.build(floatRingGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5 }), true, false, 220));
   }
 
   // ---------- 岩（岬の崖・水ぎわ）と灯台 ----------
@@ -431,9 +677,9 @@ export function buildSunsetWorld(track: Track): SunsetWorld {
       const x = cape.x + R(-24, 24), z = cape.y + R(-22, 18);
       if (roadDist(x, z) < wall + 3) continue;
       const s = R(2, 4);
-      tops.add(mat4(x, groundH(x, z) + s * 0.25, z, R(0, TAU), s * 1.3, s * 0.6, s), ['#4f9a50', '#5aa85a', '#3f8a4a'][Math.floor(rand() * 3)]);
+      tops.add(mat4(x, groundH(x, z) + s * 0.25, z, R(0, TAU), s * 1.1, s * 0.7, s * 0.95), ['#ffffff', '#dcffc8', '#e8ffe0'][Math.floor(rand() * 3)]);
     }
-    add(tops.build(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshLambertMaterial({ color: '#ffffff' }), true, false, 700));
+    add(tops.build(bushGeo, bushMat, false, false, 700));
     group.add(lighthouse(cape.x - 14, groundH(cape.x - 14, cape.y + 4), cape.y + 4));
   }
 
@@ -492,12 +738,68 @@ export function buildSunsetWorld(track: Track): SunsetWorld {
     group.add(gate);
   }
 
+  // ---------- 遠くの帆かけ舟（動かない。夕もやにかすむ）----------
+  {
+    const boats = new Bag();
+    for (const [x, z, s] of [
+      [-210, -120, 2.4],
+      [-330, 160, 3.0],
+      [-260, 330, 2.2],
+      [-430, -260, 3.4],
+      [-380, 40, 2.6],
+    ]) {
+      boats.add(mat4(x, SEA_Y, z, R(0, TAU), s));
+    }
+    add(boats.build(boatGeometry(), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, fog: true }), false, false, 1400));
+  }
+
   // ダッシュ板
   const pads = dashPads(track);
   group.add(pads.obj);
 
+  // ---------- カモメ（海の上をまわって、羽ばたく。10 羽ぶんの行列を毎フレーム更新するだけ）----------
+  const BIRDS = 10;
+  const birdMat = new THREE.MeshBasicMaterial({ color: '#4b3447', side: THREE.DoubleSide });
+  birdMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = globalUniforms.uTime;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed.y += sin(uTime * 11.0 + float(gl_InstanceID) * 1.7) * abs(position.x) * 0.45;');
+  };
+  birdMat.customProgramCacheKey = () => 'sunsetGull';
+  const birds = new THREE.InstancedMesh(birdGeometry(), birdMat, BIRDS);
+  birds.frustumCulled = false;
+  group.add(birds);
+  const flock = Array.from({ length: BIRDS }, () => ({
+    cx: R(-140, -30),
+    cz: R(-260, 380),
+    r: R(18, 55),
+    h: R(14, 34),
+    w: R(0.12, 0.25) * (rand() < 0.5 ? -1 : 1),
+    ph: R(0, TAU),
+    sc: R(1.4, 2.2),
+  }));
+  const _bp = new THREE.Vector3();
+  const _bs = new THREE.Vector3();
+  const _bq = new THREE.Quaternion();
+  const _bm = new THREE.Matrix4();
+  let flockClock = 0;
+  const flyBirds = (dt: number) => {
+    flockClock += dt;
+    flock.forEach((b, i) => {
+      const a = b.ph + flockClock * b.w;
+      const sg = Math.sign(b.w);
+      _bp.set(b.cx + Math.cos(a) * b.r, b.h + Math.sin(flockClock * 0.7 + i) * 1.5, b.cz + Math.sin(a) * b.r);
+      // 進む向き（円の接線）に体を向けて、まわる側へ少しかたむける
+      _bq.setFromEuler(_e.set(0, Math.atan2(-Math.sin(a) * sg, Math.cos(a) * sg), 0.25 * sg, 'YXZ'));
+      birds.setMatrixAt(i, _bm.compose(_bp, _bq, _bs.setScalar(b.sc)));
+    });
+    birds.instanceMatrix.needsUpdate = true;
+  };
+  flyBirds(0);
+
   // ---------- 動かすもの ----------
-  const updaters: ((dt: number) => void)[] = [pads.update];
+  const updaters: ((dt: number) => void)[] = [pads.update, flyBirds];
   let lod: { m: THREE.Object3D; c: THREE.Vector3; r: number; d: number }[] | null = null;
   return {
     group,
@@ -534,7 +836,7 @@ function trunkTopMatrix(x: number, y: number, z: number, yaw: number, s: number,
 }
 
 function palmTrunkGeometry(): THREE.BufferGeometry {
-  const RS = 8, HS = 18;
+  const RS = 7, HS = 12;
   const pos: number[] = [], col: number[] = [], idx: number[] = [];
   const c = new THREE.Color();
   for (let j = 0; j <= HS; j++) {
@@ -542,7 +844,8 @@ function palmTrunkGeometry(): THREE.BufferGeometry {
     const y = f * PALM_H;
     const bend = f * f * PALM_H * 0.08; // 上へいくほど反る
     const ring = 1 + 0.07 * Math.max(0, Math.sin(f * 60)); // 節のでこぼこ
-    const r = (0.34 - 0.14 * f) * ring;
+    const flare = 1 + 0.55 * Math.exp(-f * 16); // 根もとは、地面に向かって少し広がる
+    const r = (0.34 - 0.14 * f) * ring * flare;
     for (let i = 0; i <= RS; i++) {
       const a = (i / RS) * TAU;
       pos.push(Math.cos(a) * r + bend, y, Math.sin(a) * r);
@@ -564,9 +867,9 @@ function palmTrunkGeometry(): THREE.BufferGeometry {
   // 幹の傾きは、置くときの z 回りの回転で（mat4 の rz）
   // ヤシの実（てっぺんのすぐ下）
   const nuts: THREE.BufferGeometry[] = [];
-  for (let k = 0; k < 4; k++) {
-    const a = (k / 4) * TAU + 0.3;
-    const sph = new THREE.SphereGeometry(0.24, 8, 6).translate(Math.cos(a) * 0.3 + PALM_H * 0.08, PALM_H - 0.25, Math.sin(a) * 0.3);
+  for (let k = 0; k < 5; k++) {
+    const a = (k / 5) * TAU + 0.3;
+    const sph = new THREE.SphereGeometry(0.3, 5, 3).translate(Math.cos(a) * 0.34 + PALM_H * 0.08, PALM_H - 0.25 - (k % 2) * 0.18, Math.sin(a) * 0.34);
     const n = sph.getAttribute('position').count;
     const cc: number[] = [];
     for (let i = 0; i < n; i++) cc.push(0.42, 0.32, 0.2);
@@ -580,7 +883,7 @@ function palmTrunkGeometry(): THREE.BufferGeometry {
 // ヤシの葉の冠：外へ弓なりにたれる葉が 10 枚
 function palmCrownGeometry(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
-  const NF = 11, SEG = 8, LEN = 4.8, W = 2.0;
+  const NF = 13, SEG = 5, LEN = 4.8, W = 2.0;
   for (let k = 0; k < NF; k++) {
     const yaw = (k / NF) * TAU + (k % 2) * 0.2;
     const up = k % 3 === 0 ? 0.55 : 0.25; // 上向きの葉も少し
@@ -623,21 +926,6 @@ function umbrellaCanopyGeometry(): THREE.BufferGeometry {
   return g;
 }
 
-// ハイビスカスの花（5 枚の花びらの浅いお皿）
-function hibiscusGeometry(): THREE.BufferGeometry {
-  const parts: THREE.BufferGeometry[] = [];
-  for (let k = 0; k < 5; k++) {
-    const pet = new THREE.CircleGeometry(0.55, 8).scale(1, 0.75, 1).translate(0.5, 0, 0);
-    pet.rotateX(-Math.PI / 2);
-    pet.rotateZ(0.35);
-    pet.rotateY((k / 5) * TAU);
-    parts.push(pet);
-  }
-  const g = mergeGeometries(parts);
-  g.computeVertexNormals();
-  return g;
-}
-
 // 岩（でこぼこの多面体）
 function rockGeometry(): THREE.BufferGeometry {
   const g = new THREE.IcosahedronGeometry(1, 1);
@@ -649,23 +937,6 @@ function rockGeometry(): THREE.BufferGeometry {
   }
   g.computeVertexNormals();
   return g;
-}
-
-// サンゴ（枝分かれ）
-function coralGeometry(): THREE.BufferGeometry {
-  const rr = mulberry32(17);
-  const parts: THREE.BufferGeometry[] = [];
-  for (let k = 0; k < 8; k++) {
-    const h = 0.6 + rr() * 0.9;
-    const b = new THREE.CylinderGeometry(0.07, 0.12, h, 6).translate(0, h / 2, 0);
-    b.rotateZ((rr() - 0.5) * 1.0);
-    b.rotateX((rr() - 0.5) * 1.0);
-    b.translate((rr() - 0.5) * 0.9, 0, (rr() - 0.5) * 0.9);
-    parts.push(b);
-    const tip = new THREE.SphereGeometry(0.12, 6, 4).translate(0, h, 0);
-    parts.push(tip);
-  }
-  return mergeGeometries(parts.map((p) => p.toNonIndexed()));
 }
 
 // 白い灯台（赤い帯と、明かりの灯った頭）

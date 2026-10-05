@@ -8,8 +8,9 @@ const TAU = Math.PI * 2;
 
 // ホタテ貝の扇（うねのある、半円の帯）。xy 平面に立ち、+z が手前（走ってくる側は -z）
 // rIn..rOut の帯。うねは ribs 本。色は根元のももいろ → 先のうす紫
-export function scallopFanGeometry(rIn: number, rOut: number, ribs: number, depth: number, thick: number): THREE.BufferGeometry {
-  const NT = ribs * 10, NR = 10;
+// res = [うね 1 本あたりの分割数, 根元から先までのリング数]。大きな貝殻ゲートは細かく（既定）、砂の上の小さな貝殻は粗く
+export function scallopFanGeometry(rIn: number, rOut: number, ribs: number, depth: number, thick: number, res: [number, number] = [10, 10]): THREE.BufferGeometry {
+  const NT = ribs * res[0], NR = res[1];
   const pos: number[] = [], col: number[] = [], idx: number[] = [];
   const cA = new THREE.Color('#ffe4ea'), cB = new THREE.Color('#fff6ee'), cC = new THREE.Color('#ead6ff'), cD = new THREE.Color('#d6ecff');
   const c = new THREE.Color();
