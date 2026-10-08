@@ -17,6 +17,12 @@ export class Race {
   time = 0;
   readonly finishOrder: Racer[] = [];
   onLap: ((r: Racer) => void) | null = null;
+  // 踏みつぶしの出来事（回数が増えたら lastStomp を読む。音・ゆれ・文字の演出のきっかけ）
+  stompCount = 0;
+  lastStomp: { pos: THREE.Vector3; by: Racer; victim: Racer } | null = null;
+  // バリアが攻撃をはじいた出来事（回数が増えたら lastRepel を読む）
+  repelCount = 0;
+  lastRepel: { racer: Racer; from: THREE.Vector3; power: number } | null = null;
 
   constructor(
     readonly track: Track,
@@ -32,6 +38,10 @@ export class Race {
       r.prevT = r.kart.proj.t;
       r.updateProgress(track);
       if (!r.isPlayer) r.ai = new AIDriver(0.95 + Math.random() * 0.04);
+      r.onRepel = (racer, from, power) => {
+        this.repelCount++;
+        this.lastRepel = { racer, from: from.clone(), power };
+      };
     });
   }
 
@@ -52,7 +62,7 @@ export class Race {
       if (moving) {
         if (r.isPlayer && !r.finished) {
           input = playerInput;
-          if (playerInput.item) this.items.use(r, this.racers);
+          if (playerInput.item && r.kart.squashTime <= 0) this.items.use(r, this.racers);
         } else {
           r.ai ??= new AIDriver(0.97);
           input = r.ai.update(dt, r, this.track);
@@ -64,6 +74,9 @@ export class Race {
           r.finished = true;
           r.finishTime = this.time;
           this.finishOrder.push(r);
+          // ゴールしたら、巨大なスターは、すっとしぼませる（ゴールのカメラに合わせて）
+          r.kart.starTime = Math.min(r.kart.starTime, 0.9);
+          r.barrierEnd = Math.min(r.barrierEnd, r.progress); // バリアも、ゴールで消える
           if (r.isPlayer) this.state = 'finished';
         } else {
           this.onLap?.(r);
@@ -83,11 +96,24 @@ export class Race {
     for (let i = 0; i < rs.length; i++) {
       for (let j = i + 1; j < rs.length; j++) {
         const a = rs[i].kart, b = rs[j].kart;
+        if (a.squashTime > 0 || b.squashTime > 0) continue; // ぺちゃんこのカートは、だれにも押されない
         _d.subVectors(b.pos, a.pos).setY(0);
         const d = _d.length();
-        if (d > 2.0 || d < 1e-4 || Math.abs(a.y - b.y) > 1.5) continue;
+        // 巨大なほど、ぶつかる範囲も広い（ふつうは 2.0m）
+        const sa = a.giantScale, sb = b.giantScale;
+        const reach = sa + sb;
+        if (d > reach || d < 1e-4 || Math.abs(a.y - b.y) > 1.5 * Math.max(sa, sb)) continue;
+        // 巨大なスターは、ふつうのカートを押しのけず、踏みつぶして通りぬける
+        if (a.starTime > 0 && b.starTime <= 0) {
+          this.stomp(rs[i], rs[j]);
+          continue;
+        }
+        if (b.starTime > 0 && a.starTime <= 0) {
+          this.stomp(rs[j], rs[i]);
+          continue;
+        }
         _d.divideScalar(d);
-        const push = (2.0 - d) / 2;
+        const push = (reach - d) / 2;
         a.pos.addScaledVector(_d, -push);
         b.pos.addScaledVector(_d, push);
         const rel = (b.vel.x - a.vel.x) * _d.x + (b.vel.z - a.vel.z) * _d.z;
@@ -95,11 +121,21 @@ export class Race {
           a.vel.addScaledVector(_d, rel * 0.6);
           b.vel.addScaledVector(_d, -rel * 0.6);
         }
-        // 無敵は相手を弾き飛ばす
-        if (a.starTime > 0 && b.starTime <= 0) rs[j].hit();
-        if (b.starTime > 0 && a.starTime <= 0) rs[i].hit();
       }
     }
+  }
+
+  // 踏みつぶす：ぺちゃんこにして、しばらく止める（コインも少し落とす）
+  private stomp(by: Racer, victim: Racer) {
+    // バリアは、踏みつぶしも、はじき返す
+    if (victim.kart.barrier) {
+      victim.repel(by.kart.pos, 1.5);
+      return;
+    }
+    if (!victim.kart.squash(2.2)) return;
+    victim.addCoins(-2);
+    this.stompCount++;
+    this.lastStomp = { pos: new THREE.Vector3(victim.kart.pos.x, victim.kart.y, victim.kart.pos.z), by, victim };
   }
 
   private rank() {

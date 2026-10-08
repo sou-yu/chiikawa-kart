@@ -39,6 +39,7 @@ import { StorybookPass } from './fx/StorybookPass';
 import { Track } from './track/Track';
 import { KUSAMUSHIRI } from './track/tracks/kusamushiri';
 import { HUD } from './ui/HUD';
+import { RearMirror } from './fx/RearMirror';
 
 async function boot() {
   // 縦持ち（スマホ・タブレットの縦画面）用の配置に切り替える。選ぶ画面から効くよう、最初に付ける
@@ -280,7 +281,10 @@ async function boot() {
   racers.push(player);
   for (const r of racers) scene.add(r.obj);
   const race = new Race(track, racers, player, items);
+  player.fx.warm(renderer, camera, rt); // 絶対バリアのシェーダーを、先に用意しておく
   const hud = new HUD(uiRoot, track);
+  // ばくだんの爆発は、自分のうしろで起きるので、バックミラーで見えるようにする
+  const mirror = new RearMirror(renderer, scene, uiRoot, fx);
 
   race.onLap = (r) => {
     if (!r.isPlayer) return;
@@ -289,7 +293,7 @@ async function boot() {
   };
 
   const IDLE_INPUT = { steer: 0, throttle: true, brake: false, item: false, jump: false };
-  if (import.meta.env.DEV) Object.assign(window, { __refFaceFlat: refFaceFlat, __game: { race, player, track, camera, renderer, scene, items, fx, hud, landmarks, composer, storybook, step: (dt: number) => { race.update(dt, IDLE_INPUT); updateRaceUI(); for (const r of racers) r.updateVisual(dt); updateCamera(dt); composer.render(dt); }, finishCamTime: () => finishCam } });
+  if (import.meta.env.DEV) Object.assign(window, { __refFaceFlat: refFaceFlat, __game: { race, player, track, camera, renderer, scene, items, fx, hud, mirror, landmarks, composer, storybook, step: (dt: number) => { race.update(dt, IDLE_INPUT); updateRaceUI(); for (const r of racers) r.updateVisual(dt); updateCamera(dt); composer.render(dt); }, finishCamTime: () => finishCam } });
 
   // 開発中の確認用：ループを止めて、好きな位置から撮る（画面に重ねて表示するので、スクリーンショットで見られる）
   if (import.meta.env.DEV) {
@@ -516,6 +520,19 @@ async function boot() {
   let lastDriftLevel = 0;
   let glideCam = 0; // グライダー中は少し引いて高い位置から
   let lastGlide = 0;
+  let lastDrop = 0; // ばくだんを落とした回数（演出のきっかけ）
+  let lastStarUse = 0; // スターを使った回数
+  let lastStomp = 0; // 踏みつぶした回数
+  let starWasOn = false;
+  let recoverPlayed = false; // 起き上がりの「ぼよよーん」を、1 回だけ鳴らす
+  let stepTimer = 0; // 巨大なカートの足音の間隔
+  let lastLaunch = 0; // ミサイルを撃った回数
+  let lastBlast = 0; // ばくだん・ミサイルが爆発した回数
+  let exposureKick = 0; // 爆発のまぶしさ（画面全体が一瞬、明るくなる）
+  let lastBarrier = 0; // 絶対バリアを張った回数
+  let lastRepel = 0; // バリアが攻撃をはじいた回数（全員ぶん）
+  let lastPlayerHits = 0; // 自分のバリアがはじいた回数
+  let barrierWasOn = false;
 
   // 縦長の画面（スマホ・タブレットの縦持ち）か
   const isPortrait = () => window.innerHeight > window.innerWidth;
@@ -608,6 +625,15 @@ async function boot() {
     glideCam += ((k.gliding ? 1 : 0) - glideCam) * (1 - Math.exp(-2.5 * dt));
     boostCam += ((k.boostTime > 0 ? Math.min(1, k.boostPower / KART.driftBoostPower[1]) : 0) - boostCam) * (1 - Math.exp(-4 * dt));
     chaseGoal(k, glideCam, camGoal, lookGoal);
+    // 巨大になったら、カメラを引いて高くする（大きなカートが、画面からはみ出さないように）
+    const g01 = k.giant01;
+    if (g01 > 0.001) {
+      const pull = 1 + 0.5 * g01; // 引きすぎると、大きく見えなくなる。大きさの 2 割ほどは、画面にも出す
+      camGoal.x = k.pos.x + (camGoal.x - k.pos.x) * pull;
+      camGoal.z = k.pos.z + (camGoal.z - k.pos.z) * pull;
+      camGoal.y += 2.4 * g01;
+      lookGoal.y += 1.1 * g01;
+    }
     // 演出を飛ばした直後は、カメラがいきなり振り回されないよう、ゆっくりめに追いつく
     const follow = camBlend > 0 ? 0.4 : 1;
     camBlend = Math.max(0, camBlend - dt);
@@ -694,6 +720,8 @@ async function boot() {
       if (errorCount++ < 5) console.error('frame error', e);
     }
   });
+  // 開発中の確認用：ブラウザが描画を止めているとき（非表示のとき）に、1 コマずつ進める
+  if (import.meta.env.DEV) Object.assign(window, { __frameOnce: () => frame() });
 
   function frame() {
     const now = performance.now();
@@ -727,6 +755,139 @@ async function boot() {
       hud.flash(['ミニターボ！', 'スーパーターボ！', 'ウルトラターボ！！'][L - 1], L >= 2, ['#7fc8ff', '#ffb04a', '#ff7ad9'][L - 1]);
       sfx.driftBoost(L);
     }
+    // ばくだん：落とした音と導火線の音（自分で落としたら、バックミラーも出す）。爆発の音・ゆれ・まぶしさ・フラッシュ
+    if (items.dropCount !== lastDrop) {
+      lastDrop = items.dropCount;
+      const d = items.lastDrop!;
+      const near = Math.max(0.25, 1 - pk.pos.distanceTo(d.pos) / 90);
+      sfx.bombDrop(near);
+      sfx.bombFuse(near);
+      if (d.owner === player) mirror.show(3.4);
+    }
+    // スター：使った瞬間（ファンファーレ・ゆれ・まぶしさ）、終わり、足音、踏みつぶし、起き上がり
+    if (items.starCount !== lastStarUse) {
+      lastStarUse = items.starCount;
+      const o = items.lastStar!.owner;
+      if (o === player) {
+        sfx.starUse(1);
+        hud.flash('スター！ きょだいか！', true, '#ffe66b');
+        shake = Math.max(shake, 0.4);
+        fovKick += 8;
+        exposureKick = Math.max(exposureKick, 0.22);
+      } else sfx.starUse(Math.max(0.15, 0.8 - pk.pos.distanceTo(o.kart.pos) / 140));
+    }
+    if (starWasOn && pk.starTime <= 0) sfx.starEnd();
+    starWasOn = pk.starTime > 0;
+    // 絶対バリア：張った瞬間、はじいた瞬間（自分が／ほかの人が）、切れた瞬間
+    if (items.barrierCount !== lastBarrier) {
+      lastBarrier = items.barrierCount;
+      const o = items.lastBarrier!.owner;
+      if (o === player) {
+        sfx.barrierOn(1);
+        hud.flash('絶対バリア！', true, '#8fe6ff');
+        shake = Math.max(shake, 0.2);
+        fovKick += 5;
+        exposureKick = Math.max(exposureKick, 0.18);
+        hud.blastFlash(0.22, true);
+      } else sfx.barrierOn(Math.max(0.12, 0.7 - pk.pos.distanceTo(o.kart.pos) / 130));
+    }
+    if (pk.barrierHits !== lastPlayerHits) {
+      lastPlayerHits = pk.barrierHits;
+      const pw = Math.min(1.4, pk.barrierHitPower);
+      sfx.barrierHit(0.8 + 0.2 * pw);
+      shake = Math.max(shake, 0.3 + 0.25 * pw);
+      fovKick += 4 + 3 * pw;
+      exposureKick = Math.max(exposureKick, 0.12 + 0.1 * pw);
+      hud.blastFlash(0.22 + 0.1 * pw, true);
+      hud.flash('バリアで はじいた！', true, '#8fe6ff');
+    }
+    if (race.repelCount !== lastRepel) {
+      lastRepel = race.repelCount;
+      const rp = race.lastRepel!;
+      if (rp.racer !== player) {
+        const d = pk.pos.distanceTo(rp.racer.kart.pos);
+        sfx.barrierHit(Math.max(0.12, 0.9 - d / 110));
+        shake = Math.max(shake, 0.12 * Math.max(0, 1 - d / 60));
+      }
+    }
+    if (barrierWasOn && !pk.barrier) {
+      sfx.barrierOff(1);
+      if (race.state !== 'finished') hud.flash('バリアが 切れた！', false, '#bfe9ff');
+    }
+    barrierWasOn = pk.barrier;
+    if (pk.giantScale > 1.5 && pk.grounded && pk.forwardSpeed > 4) {
+      stepTimer -= dt;
+      if (stepTimer <= 0) {
+        stepTimer = 0.3;
+        sfx.giantStep(0.5 + 0.5 * pk.giant01);
+        shake = Math.max(shake, 0.05 + 0.08 * pk.giant01);
+      }
+    } else stepTimer = 0;
+    if (race.stompCount !== lastStomp) {
+      lastStomp = race.stompCount;
+      const s = race.lastStomp!;
+      const d = pk.pos.distanceTo(s.pos);
+      sfx.stomp(Math.max(0.2, 1 - d / 120));
+      shake = Math.max(shake, 0.2 + 0.55 * Math.max(0, 1 - d / 70));
+      if (s.by === player) {
+        hud.flash('ふみつぶし！', true, '#ffd23a');
+        hud.blastFlash(0.25);
+      } else if (s.victim === player) {
+        hud.flash('ふみつぶされた！', true, '#ff8a4a');
+        hud.blastFlash(0.45);
+      }
+    }
+    if (pk.squashTime > 0 && pk.squashTime < 0.56) {
+      if (!recoverPlayed) {
+        recoverPlayed = true;
+        sfx.squashRecover(1);
+      }
+    } else if (pk.squashTime <= 0) recoverPlayed = false;
+
+    // ミサイル：発射の音。自分がねらわれたら、警報とバックミラー（うしろから近づいてくるので）
+    if (items.launchCount !== lastLaunch) {
+      lastLaunch = items.launchCount;
+      const l = items.lastLaunch!;
+      sfx.missileLaunch(Math.max(0.2, 1 - pk.pos.distanceTo(l.pos) / 110));
+      if (l.target === player) {
+        sfx.missileAlarm();
+        hud.flash('ミサイル接近！ うしろ！', true, '#ff5a40');
+        mirror.show(Math.min(8, l.eta + 2.6));
+      }
+    }
+    if (items.blastCount !== lastBlast) {
+      lastBlast = items.blastCount;
+      const b = items.lastBlast!;
+      const missile = b.kind === 'missile';
+      const dist = pk.pos.distanceTo(b.pos);
+      const prox = Math.max(0, 1 - dist / 80) * (missile ? 0.75 : 1); // 近いほど 1 に近い（ミサイルは、ばくだんより小さめ）
+      sfx.explosion(Math.max(0.15, Math.min(1, (missile ? 0.95 : 1.1) - dist / 150)));
+      shake = Math.max(shake, (missile ? 0.25 : 0.3) + 0.8 * prox);
+      fovKick += 9 * prox;
+      exposureKick = Math.max(exposureKick, 0.2 + 0.9 * prox);
+      if (b.shielded.includes(player)) {
+        // 自分のバリアがはじいた（文字・音・閃光は、バリアの演出で出している）
+      } else if (b.blocked.includes(player)) {
+        // スターが爆風を無効にした
+        sfx.starShield(1);
+        hud.flash('スターで 無効！', true, '#ffe66b');
+      } else if (b.owner === player) {
+        hud.blastFlash(0.55);
+        const bounced = b.victims.length === 0 && b.shielded.length > 0;
+        hud.flash(
+          missile
+            ? b.victims.length ? 'ミサイル命中！' : bounced ? 'バリアに はじかれた…' : 'ミサイルは はずれた…'
+            : b.victims.length ? `ばくはつ！ ${b.victims.length}台 スピン！` : bounced ? 'バリアに はじかれた…' : 'ばくはつ！',
+          true,
+          '#ffa23c',
+        );
+      } else if (b.victims.includes(player)) {
+        hud.blastFlash(1);
+        hud.flash(missile ? 'ミサイル直撃！' : 'ふきとばされた！', true, '#ff6a4a');
+      } else if (prox > 0.35) hud.blastFlash(0.35 * prox);
+    }
+    exposureKick *= Math.exp(-6 * dt);
+    renderer.toneMappingExposure = 1.05 + exposureKick;
     for (const r of racers) r.updateVisual(dt);
     fx.sparks.update(dt);
     fx.dust.update(dt);
@@ -735,8 +896,10 @@ async function boot() {
     fx.sparks.setViewport(renderer.domElement.height, camera.fov);
     fx.dust.setViewport(renderer.domElement.height, camera.fov);
     hud.update(dt, race);
+    mirror.update(dt);
     globalUniforms.uTime.value += dt;
     composer.render(dt);
+    mirror.render(pk, player.fx.insideObjects);
 
     frames++;
     if (now - fpsTime >= 1000) {

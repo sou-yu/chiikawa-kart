@@ -35,6 +35,11 @@ export class Racer {
   roulette = 0;
   coins = 0;
 
+  // 絶対バリア：コース 1 周ぶん（進み具合 progress が、この値になるまで）続く
+  barrierEnd = -Infinity;
+  // 攻撃をはじいたとき（Race が、音・文字の演出につなぐ）
+  onRepel: ((r: Racer, from: THREE.Vector3, power: number) => void) | null = null;
+
   private visYaw = 0;
   private pose = 0;
   private poseHold = 0;
@@ -67,6 +72,36 @@ export class Racer {
     if (this.kart.spinOut(1.3)) this.addCoins(-2);
   }
 
+  // ばくだんの爆風：爆心から外へ吹き飛ばされて、高く舞い上がりながら、はげしくスピン（power：近いほど強い）
+  blast(from: THREE.Vector3, power: number): boolean {
+    const k = this.kart;
+    if (!k.spinOut(1.5 + 0.7 * power)) return false; // 無敵（星）やスピン中は、影響なし
+    this.addCoins(-3);
+    k.vy = Math.max(k.vy, 7 + 6 * power);
+    k.vel.add(_blastPush.set(k.pos.x - from.x, 0, k.pos.z - from.z).normalize().multiplyScalar(6 + 5 * power));
+    return true;
+  }
+
+  // 絶対バリアをはる（いまの位置から、コース 1 周ぶん）
+  activateBarrier(laps = 1) {
+    this.barrierEnd = this.progress + laps;
+    this.kart.barrier = true;
+    this.kart.barrierLeft = 1;
+    this.kart.barrierPop++;
+  }
+
+  // 攻撃を、バリアではじき返した（from：攻撃が来た場所。power：強さ）。演出をつなぐ。続けて何度も出ないよう、少し間をあける
+  repel(from: THREE.Vector3, power = 1): boolean {
+    const k = this.kart;
+    if (!k.barrier || k.barrierCool > 0) return false;
+    k.barrierCool = 0.3;
+    k.barrierHits++;
+    k.barrierHitPower = power;
+    k.barrierHitDir.set(from.x - k.pos.x, Math.max(0.15, (from.y ?? 0) - k.y) * 0.4, from.z - k.pos.z).normalize();
+    this.onRepel?.(this, from, power);
+    return true;
+  }
+
   // 周回・進み具合。スタートラインを越えたら true
   updateProgress(track: Track): boolean {
     const t = this.kart.proj.t;
@@ -83,6 +118,10 @@ export class Racer {
     }
     this.prevT = t;
     this.progress = this.lapCount - 1 + t;
+    // バリア：はった場所から、コースを 1 周走るまで
+    const left = this.barrierEnd - this.progress;
+    this.kart.barrier = left > 0;
+    this.kart.barrierLeft = Math.max(0, Math.min(1, left));
     void track;
     return crossed;
   }
@@ -141,14 +180,22 @@ export class Racer {
     for (const w of this.model.spinWheels) w.rotation.x += (k.forwardSpeed / 0.4) * dt;
     for (const w of this.model.steerWheels) w.rotation.y = -k.steerInput * 0.4;
 
+    // スターで巨大になる／踏まれてぺちゃんこになる（地面を中心に、大きさを変える）
+    const gs = k.giantScale;
+    k.squashScale(_sq);
+    this.visual.scale.set(gs * _sq.x, gs * _sq.y, gs * _sq.z);
+
     // 影は地面に置いたまま、高く飛ぶほど小さく薄く
     this.shadow.position.y = k.groundY + 0.05;
     const s = 1 / (1 + (k.y - k.groundY) * 0.3);
-    this.shadow.scale.set(s, 1, s * 1.3);
+    this.shadow.scale.set(s * gs * _sq.x, 1, s * 1.3 * gs * _sq.z);
 
     this.fx.update(dt, k);
   }
 }
+
+const _blastPush = new THREE.Vector3();
+const _sq = new THREE.Vector3();
 
 function blobShadow(): THREE.Mesh {
   const [w, h] = [64, 64];

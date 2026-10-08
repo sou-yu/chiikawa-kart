@@ -7,6 +7,13 @@ const fwd = new THREE.Vector3();
 const right = new THREE.Vector3();
 const NEUTRAL: InputState = { steer: 0, throttle: false, brake: false, item: false, jump: false };
 
+// スターの巨大化：大きさ（倍）、膨らむ時間、しぼむ時間。踏まれたあと起き上がるまでの時間
+export const GIANT = 2.4;
+export const STAR_TIME = 8;
+const GROW_TIME = 0.75;
+const SHRINK_TIME = 0.9;
+const SQUASH_RECOVER = 0.55;
+
 // アーケード向けの自作カート物理。見た目は持たず、状態だけを持つ。
 export class Kart {
   readonly pos = new THREE.Vector3();
@@ -37,6 +44,21 @@ export class Kart {
   rubberband = 1; // CPU の追い上げ補正
   spinTime = 0;
   starTime = 0;
+  starMax = 0; // スターを使ったときの長さ（巨大になる大きさの変わりかたに使う）
+  starBurst = 0; // スターを使った回数（演出のきっかけ）
+  // 踏みつぶし：巨大スターに踏まれると、ぺちゃんこになって、しばらく止まる
+  squashTime = 0; // 残り（秒）
+  squashMax = 0;
+  squashImmune = 0; // 起き上がった直後は、また踏まれない
+  squashCount = 0; // 踏まれた回数（演出のきっかけ）
+  // 絶対バリア：どんな攻撃も無効にする（コース 1 周のあいだ。残りは、Racer が走った距離から決める）
+  barrier = false;
+  barrierLeft = 0; // 残り（周）。1 → 0
+  barrierPop = 0; // バリアをはった回数（演出のきっかけ）
+  barrierHits = 0; // 攻撃をはじいた回数（演出のきっかけ）
+  barrierCool = 0; // 続けて何度も「はじいた」演出が出ないように
+  readonly barrierHitDir = new THREE.Vector3(0, 0, 1); // はじいた攻撃の、来た向き（カートから見て）
+  barrierHitPower = 1;
 
   // 演出用のイベント（そのフレームだけ true）
   landed = false;
@@ -89,8 +111,58 @@ export class Kart {
     track.project(this.pos, this.proj);
   }
 
+  // スター中の大きさ（1 → GIANT 倍）。使ったとき、ぐんと大きくなって、少し行きすぎてから落ち着く。終わりぎわは、しぼむ
+  get giantScale(): number {
+    if (this.starTime <= 0) return 1;
+    const age = this.starMax - this.starTime;
+    let g = 1;
+    if (age < GROW_TIME) {
+      const u = age / GROW_TIME - 1;
+      g = 1 + 2.7 * u * u * u + 1.7 * u * u; // 行きすぎて（約 1.1 倍）もどる
+    }
+    if (this.starTime < SHRINK_TIME) {
+      const u = this.starTime / SHRINK_TIME;
+      g = Math.min(g, u * u * (3 - 2 * u));
+    }
+    return 1 + (GIANT - 1) * Math.max(0, g);
+  }
+  // 巨大さ 0..1（カメラを引くなどに使う）
+  get giant01(): number {
+    return (this.giantScale - 1) / (GIANT - 1);
+  }
+  // つぶれかた：x・z をふくらませて、y を平らに。踏まれた瞬間にぺしゃっと潰れ、起きるときは、ぼよんと伸びてもどる
+  squashScale(out: THREE.Vector3): THREE.Vector3 {
+    if (this.squashTime <= 0) return out.set(1, 1, 1);
+    const age = this.squashMax - this.squashTime;
+    let y: number;
+    if (age < 0.09) {
+      const u = age / 0.09;
+      y = 1 - 0.9 * u * u;
+    } else if (this.squashTime > SQUASH_RECOVER) {
+      y = 0.1 + 0.012 * Math.sin(age * 30) * Math.exp(-(age - 0.09) * 3); // つぶれたまま、ふるえる
+    } else {
+      const u = 1 - this.squashTime / SQUASH_RECOVER; // 起き上がり 0 → 1
+      y = 0.1 + 0.9 * (1 + Math.exp(-5.5 * u) * -Math.cos(u * 13)) * 1; // ぼよんと、行きすぎてもどる
+    }
+    const xz = THREE.MathUtils.clamp(1 + (0.5 * (1 - y)) / 0.9, 0.85, 1.55);
+    return out.set(xz, Math.max(0.06, y), xz);
+  }
+  // 踏みつぶされる：ぺちゃんこで、とまる（スター中・つぶれ中・起き上がった直後は、効かない）
+  squash(duration = 2.2): boolean {
+    if (this.starTime > 0 || this.barrier || this.squashTime > 0 || this.squashImmune > 0) return false;
+    this.squashTime = this.squashMax = duration;
+    this.spinTime = 0;
+    this.trickTime = 0;
+    this.drifting = false;
+    this.driftDir = 0;
+    this.driftLevel = 0;
+    this.boostTime = 0;
+    this.squashCount++;
+    return true;
+  }
+
   spinOut(duration = 1.2) {
-    if (this.starTime > 0 || this.spinTime > 0) return false;
+    if (this.starTime > 0 || this.barrier || this.spinTime > 0 || this.squashTime > 0) return false;
     this.spinTime = duration;
     this.trickTime = 0;
     this.drifting = false;
@@ -115,7 +187,7 @@ export class Kart {
 
   update(dt: number, rawInput: InputState, track: Track) {
     this.landed = this.wallHit = this.boostStarted = this.trickStarted = this.trickLanded = false;
-    if (rawInput.jump && this.spinTime <= 0 && this.grounded && !this.tricking) {
+    if (rawInput.jump && this.spinTime <= 0 && this.squashTime <= 0 && this.grounded && !this.tricking) {
       this.vy = KART.jumpVelocity;
       this.trickTime = 1e-4;
       this.trickDir = rawInput.steer < -0.2 ? -1 : 1; // ハンドルを切っている方へ回る
@@ -126,7 +198,8 @@ export class Kart {
     }
     if (this.tricking) this.trickTime += dt;
     const spinning = this.spinTime > 0;
-    const input = spinning ? NEUTRAL : rawInput;
+    const squashed = this.squashTime > 0;
+    const input = spinning || squashed ? NEUTRAL : rawInput;
     this.steerInput = input.steer;
 
     fwd.set(Math.sin(this.heading), 0, Math.cos(this.heading));
@@ -134,7 +207,7 @@ export class Kart {
     let vF = this.vel.dot(fwd);
     let vL = this.vel.dot(right);
 
-    if (!spinning) this.updateDrift(dt, input, vF);
+    if (!spinning && !squashed) this.updateDrift(dt, input, vF);
 
     // --- 前後 ---
     const boosting = this.boostTime > 0 || this.starTime > 0;
@@ -145,7 +218,10 @@ export class Kart {
     if (this.starTime > 0) max += KART.starSpeed;
 
     // 加速は最高速までに限る（超過分は overspeedDecel でなめらかに戻す）
-    if (spinning) {
+    if (squashed) {
+      vF *= Math.exp(-16 * dt); // ぺちゃんこで、すぐ止まる
+      vL *= Math.exp(-16 * dt);
+    } else if (spinning) {
       vF *= Math.exp(-2.2 * dt);
     } else if (boosting) {
       if (vF < max) vF = Math.min(max, vF + KART.boostAccel * dt);
@@ -191,6 +267,11 @@ export class Kart {
     }
     this.starTime = Math.max(0, this.starTime - dt);
     this.spinTime = Math.max(0, this.spinTime - dt);
+    this.barrierCool = Math.max(0, this.barrierCool - dt);
+    if (this.squashTime > 0) {
+      this.squashTime = Math.max(0, this.squashTime - dt);
+      if (this.squashTime <= 0) this.squashImmune = 1.4; // 起き上がった直後は、また踏まれない
+    } else this.squashImmune = Math.max(0, this.squashImmune - dt);
     this.collideTrack(track);
     this.onDash = this.grounded && track.onDash(this.proj);
     this.inWater = !!track.waterAt && track.waterAt(this.pos.x, this.pos.z);

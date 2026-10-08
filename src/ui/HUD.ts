@@ -30,9 +30,10 @@ export class HUD {
       <div id="drift"><i></i></div>
       <div id="banner"></div>
       <div id="center"></div>
+      <div id="blastflash"></div>
       <div id="results"></div>`,
     );
-    for (const id of ['speedlines', 'item-slot', 'minimap', 'place', 'timer', 'drift', 'banner', 'center', 'results']) {
+    for (const id of ['speedlines', 'item-slot', 'minimap', 'place', 'timer', 'drift', 'banner', 'center', 'blastflash', 'results']) {
       this.el[id] = document.getElementById(id)!;
     }
     this.el.itemIcon = this.el['item-slot'].querySelector('span')!;
@@ -100,6 +101,16 @@ export class HUD {
     b.className = big ? 'show big' : 'show';
     void b.offsetWidth;
     this.flashTimer = 1.6;
+  }
+
+  // 爆発のまぶしいフラッシュ（strength：0..1。画面の中心から、白 → 橙 → 透明に消える）
+  blastFlash(strength = 1, cool = false) {
+    const f = this.el.blastflash;
+    f.style.setProperty('--a', String(Math.max(0, Math.min(1, strength))));
+    f.classList.toggle('cool', cool);
+    f.classList.remove('go');
+    void f.offsetWidth;
+    f.classList.add('go');
   }
 
   showCenter(text: string, cls = '') {
