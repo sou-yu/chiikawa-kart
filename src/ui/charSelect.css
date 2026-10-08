@@ -125,8 +125,8 @@
   grid-template-columns: repeat(12, 1fr);
   grid-template-rows: 1fr 1fr;
 }
+/* 8 人：4 人ずつの 2 段 */
 #char-select .item { grid-column: span 3; }
-#char-select .item:nth-child(n + 5) { grid-column: span 4; }
 #char-select .item {
   position: relative;
   appearance: none;

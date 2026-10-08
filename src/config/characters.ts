@@ -113,4 +113,17 @@ export const CHARACTERS: CharacterSpec[] = [
     mouth: 'open',
     stats: { speed: 0.98, accel: 1.0, turn: 1.07 },
   },
+  {
+    id: 'rakko',
+    name: 'ラッコ',
+    blurb: '加速がいい、マントの剣士',
+    tint: '#f1e4cc',
+    pickable: true,
+    species: 'bear',
+    base: '#f6ecd2',
+    kart: '#d9b16a',
+    kartTrim: '#fff4dc',
+    mouth: 'omega',
+    stats: { speed: 1.01, accel: 1.06, turn: 0.98 },
+  },
 ];

@@ -12,6 +12,7 @@ import { createCharacter, type CharacterModel } from './Character';
 //   shisa（シーサー）          shisa_kart.glb      … 同上
 //   momonga（モモンガ）        momonga_kart.glb    … 同上（しっぽ <名前>_Tail つき）
 //   kani（カニちゃん）         kani_kart.glb       … 同上（本の束 Book_Bundle つき）
+//   rakko（ラッコ）            rakko_kart.glb      … 同上（マントと剣は、キャラの部品に含まれる）
 // 部品の名前はどれも同じ：<名前>_Driver（キャラ）・Kart_Body・Steering_Wheel・Steer_FL/FR（前輪の向き）・Wheel_FL/FR/RL/RR（タイヤ）
 // 骨つきのものは、さらに <名前>_ArmRig（腕の骨と、肩から手までのメッシュ 2 つ）
 // GLB は Y が上・+Z が前・地面が高さ 0。ゲームのカートと同じ向きなので、大きさだけ合わせる。
@@ -24,6 +25,7 @@ const FILES: Record<string, string> = {
   shisa: 'shisa_kart.glb',
   momonga: 'momonga_kart.glb',
   kani: 'kani_kart.glb',
+  rakko: 'rakko_kart.glb',
 };
 
 // どのモデルも、カートの大きさは同じ（幅約 2m）。今までの手作りのカートと同じ見た目の大きさになるよう、全部に同じ倍率をかける
