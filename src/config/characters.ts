@@ -116,7 +116,7 @@ export const CHARACTERS: CharacterSpec[] = [
   {
     id: 'rakko',
     name: 'ラッコ',
-    blurb: '加速がいい、マントの剣士',
+    blurb: '最高速がずばぬけて速い',
     tint: '#f1e4cc',
     pickable: true,
     species: 'bear',
@@ -124,6 +124,7 @@ export const CHARACTERS: CharacterSpec[] = [
     kart: '#d9b16a',
     kartTrim: '#fff4dc',
     mouth: 'omega',
-    stats: { speed: 1.01, accel: 1.06, turn: 0.98 },
+    // スピードは全キャラで最高：ほかの最速（シーサー 1.04）の 110%
+    stats: { speed: 1.144, accel: 1.06, turn: 0.98 },
   },
 ];
