@@ -322,6 +322,37 @@ export class Sfx {
     n.start(t0);
   }
 
+  // カート同士がぶつかった：ごつん（低い音）と、かちっ（プラスチックが当たる音）
+  bump(vol = 1) {
+    const ctx = this.ctx;
+    if (!ctx || !this.master) return;
+    const t0 = ctx.currentTime;
+    const v = Math.max(0.1, Math.min(1, vol));
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(150, t0);
+    o.frequency.exponentialRampToValueAtTime(70, t0 + 0.1);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.4 * v, t0 + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.14);
+    o.connect(g).connect(this.master);
+    o.start(t0);
+    o.stop(t0 + 0.16);
+    const n = ctx.createBufferSource();
+    n.buffer = this.noiseBuf(0.06);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 2400;
+    bp.Q.value = 2;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t0);
+    ng.gain.exponentialRampToValueAtTime(0.22 * v, t0 + 0.003);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.05);
+    n.connect(bp).connect(ng).connect(this.master);
+    n.start(t0);
+  }
+
   // 絶対バリアをはった：ぶぉんっと球がふくらむ低い音 → 昇っていく電子音 → きらきらの和音
   barrierOn(vol = 1) {
     const ctx = this.ctx;

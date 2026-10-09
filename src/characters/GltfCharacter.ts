@@ -3,6 +3,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { CharacterSpec } from '../config/characters';
 import { createCharacter, type CharacterModel } from './Character';
+import { getGraphicsQuality } from '../core/settings';
+import { upgradeKartMaterials } from './kartMaterials';
 
 // キャラとカートの 3D モデル（public/models/*.glb）。キャラの id ごとに 1 つ。
 //   shirokuma（ちいかわ）      chiikawa_kart.glb   … 腕は骨つき。Banzai アニメーションつき（v3）
@@ -67,6 +69,8 @@ export function createGltfCharacter(spec: CharacterSpec): CharacterModel {
   base.root.remove(glider);
 
   const model = cloneSkinned(src.scene) as THREE.Group;
+  // 部品ごとの質感（塗装のクリアコート・金属・ゴム・毛並み）に差しかえる。画質はタイトル画面でえらんだもの
+  upgradeKartMaterials(model, getGraphicsQuality() === 'high');
   const root = new THREE.Group();
   root.add(model);
   model.scale.setScalar(GLB_SCALE);

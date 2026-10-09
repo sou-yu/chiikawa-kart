@@ -22,6 +22,9 @@ export class Race {
   lastStomp: { pos: THREE.Vector3; by: Racer; victim: Racer } | null = null;
   // バリアが攻撃をはじいた出来事（回数が増えたら lastRepel を読む）
   repelCount = 0;
+  // カート同士が強くぶつかった出来事
+  bumpCount = 0;
+  lastBump: { pos: THREE.Vector3; a: Racer; b: Racer; power: number } | null = null;
   lastRepel: { racer: Racer; from: THREE.Vector3; power: number } | null = null;
 
   constructor(
@@ -120,6 +123,11 @@ export class Race {
         if (rel < 0) {
           a.vel.addScaledVector(_d, rel * 0.6);
           b.vel.addScaledVector(_d, -rel * 0.6);
+          // 強くぶつかったら、火花と画面のゆれのきっかけ（ルールは変えない。見た目と音だけ）
+          if (rel < -3.5) {
+            this.bumpCount++;
+            this.lastBump = { pos: new THREE.Vector3((a.pos.x + b.pos.x) / 2, (a.y + b.y) / 2 + 0.7, (a.pos.z + b.pos.z) / 2), a: rs[i], b: rs[j], power: Math.min(1, -rel / 14) };
+          }
         }
       }
     }

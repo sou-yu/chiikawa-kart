@@ -600,6 +600,20 @@ body.portrait #touch.thumb .stick-zone { top: 40%; width: 100%; }
   box-shadow: inset 0 0 0 0.5cqw #fff;
 }
 #title-screen .ctl button.on::after { content: '✓'; font-size: 4.2cqw; color: #d83a72; }
+/* 画質のえらび：絵の左上に、小さく */
+#title-screen .ctl.gfx {
+  left: 2.4%;
+  top: 1.6%;
+  bottom: auto;
+  transform: none;
+  gap: 1.2cqw;
+  padding: 1cqw 1.8cqw;
+  border-width: 0.6cqw;
+  box-shadow: 0 0.6cqw 0 #e99ab8, 0 1.2cqw 2cqw rgba(110, 50, 70, 0.2);
+}
+#title-screen .ctl.gfx .lb { font-size: 2.8cqw; }
+#title-screen .ctl.gfx button { height: 7cqw; min-height: 32px; padding: 0 2.4cqw; font-size: 3cqw; border-width: 0.5cqw; }
+#title-screen .ctl.gfx button.on::after { font-size: 3cqw; }
 
 /* けっか表示中は、タッチの操作ボタンを隠す（けっかの表と重なるため） */
 body.finished #touch { display: none; }

@@ -20,7 +20,7 @@ export class StorybookPass extends Pass {
       uNear: { value: camera.near },
       uFar: { value: camera.far },
       uLines: { value: 1 },
-      uSat: { value: 0.96 }, // 色の濃さ（1 より大きいと鮮やか）
+      uSat: { value: 1.06 }, // 色の濃さ（1 より大きいと鮮やか）。明暗の階調は保ったまま、色だけを少し豊かに
       uLineW: { value: 1.5 },
       uShadow: { value: new THREE.Color(PAL.shadow) },
       uHighlight: { value: new THREE.Color('#fff4de') },
@@ -56,9 +56,9 @@ export class StorybookPass extends Pass {
               float fade = 1.0 - smoothstep(35.0, 170.0, d0);
               soft = e * fade * 0.32;
             }
-            // 色調整：少し彩度を落とし、暗部は薄紫・明部はクリームへ
+            // 色調整：彩度を少し上げ（明るい所は上げすぎない）、暗部は薄紫・明部はクリームへ
             float l = lum(col);
-            col = mix(vec3(l), col, uSat);
+            col = mix(vec3(l), col, mix(uSat, 1.0, smoothstep(0.6, 1.0, l)));
             // 暗い所ほど薄紫に色づける（置き換えず、色味だけ乗せる）
             float dark = 1.0 - smoothstep(0.02, 0.35, l);
             vec3 tint = uShadow / max(lum(uShadow), 0.01);
@@ -69,10 +69,10 @@ export class StorybookPass extends Pass {
             col = mix(col, col * vec3(0.84, 0.8, 0.9), soft);
             // 紙のざらざら
             float p = texture2D(tPaper, vUv * uRes / 512.0).r;
-            col *= 1.0 - (1.0 - p) * 0.14;
+            col *= 1.0 - (1.0 - p) * 0.07;
             // 周辺減光（少し温かい色で）
             float v = smoothstep(0.95, 0.35, length((vUv - 0.5) * vec2(1.1, 1.0)));
-            col *= mix(vec3(0.8, 0.76, 0.82), vec3(1.0), v);
+            col *= mix(vec3(0.86, 0.83, 0.88), vec3(1.0), v);
             gl_FragColor = vec4(col, 1.0);
           }`,
       }),

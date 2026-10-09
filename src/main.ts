@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { CHARACTERS } from './config/characters';
 import { KART, RACE } from './config/tuning';
 import { Input, isTouchDevice } from './core/Input';
-import { getControlMode } from './core/settings';
+import { getControlMode, getGraphicsQuality } from './core/settings';
 import { Particles, type FXSystems } from './fx/Particles';
 import { ItemSystem } from './game/Items';
 import { Race } from './game/Race';
@@ -141,7 +141,8 @@ async function boot() {
   ];
   // ?q=ultra|high|mid|low で画質を固定（自動調整しない）
   const forced = QUALITY.findIndex((x) => x.name === new URLSearchParams(location.search).get('q'));
-  let qi = Math.max(0, forced);
+  // タイトル画面で「標準」をえらんだときは、ブルームなしの軽い段（mid）から始める（重ければ、さらに下がる）
+  let qi = forced >= 0 ? forced : getGraphicsQuality() === 'standard' ? 2 : 0;
   const q = () => QUALITY[qi];
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -186,18 +187,44 @@ async function boot() {
   const SUN_OFFSET = SUN_DIR.clone().multiplyScalar(66);
 
   // 空から環境マップを作る（キャラやカートのツヤに空が映る）
+  const skyMat = isRainbow ? rainbowSkyMaterial() : isCandy ? candySkyMaterial(SUN_DIR) : isSunset ? sunsetSkyMaterial(false) : skyMaterial();
+  const groundCol = new THREE.Color(isRainbow ? '#d9b8f0' : isCandy ? '#ffe0e8' : isSunset ? '#c9927a' : '#c9cfb8');
+  let studioEnv: THREE.Texture | null = null;
   {
+    const pmrem = new THREE.PMREMGenerator(renderer);
     const envScene = new THREE.Scene();
-    envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), isRainbow ? rainbowSkyMaterial() : isCandy ? candySkyMaterial(SUN_DIR) : isSunset ? sunsetSkyMaterial(false) : skyMaterial()));
-    const groundDisc = new THREE.Mesh(
-      new THREE.CircleGeometry(49, 32).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: isRainbow ? '#d9b8f0' : isCandy ? '#ffe0e8' : isSunset ? '#c9927a' : '#c9cfb8' }),
-    );
+    envScene.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), skyMat));
+    const groundDisc = new THREE.Mesh(new THREE.CircleGeometry(49, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: groundCol }));
     groundDisc.position.y = -2;
     envScene.add(groundDisc);
-    const pmrem = new THREE.PMREMGenerator(renderer);
     scene.environment = pmrem.fromScene(envScene, 0.02, 0.1, 200).texture;
     scene.environmentIntensity = isCandy ? 0.9 : isSunset ? 0.8 : 0.55; // お菓子のつやつやに、空がくっきり映る
+
+    // カートの塗装・金属・ライト・目に映す「撮影スタジオ」の環境マップ（高画質のときだけ）。
+    // 同じ空に、地面を少し暗くして水平線をはっきりさせ、太陽と、やわらかい光の窓（上の大きな窓・左右の細長い窓）を足す。
+    // 光の窓は 1 を超える明るさ（HDR）なので、ツルツルの面にだけ、曲面にそったくっきりした光の筋が出る。
+    // 全体の明るさ（拡散のまわり込み）は、ふつうの環境マップとほぼ同じ
+    if (getGraphicsQuality() === 'high') {
+      const ground = groundDisc.clone();
+      ground.material = new THREE.MeshBasicMaterial({ color: groundCol.clone().multiplyScalar(0.55) });
+      const studio = new THREE.Scene();
+      studio.add(new THREE.Mesh(new THREE.SphereGeometry(50, 32, 16), skyMat), ground);
+      const glow = (color: THREE.ColorRepresentation, k: number) => new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(k), side: THREE.DoubleSide, fog: false });
+      const add = (mesh: THREE.Mesh, dir: THREE.Vector3, r = 40) => {
+        mesh.position.copy(dir).normalize().multiplyScalar(r);
+        mesh.lookAt(0, 0, 0);
+        studio.add(mesh);
+      };
+      add(new THREE.Mesh(new THREE.CircleGeometry(4, 24), glow(L.sun, isRainbow ? 3 : 7)), SUN_DIR.clone());
+      const win = isRainbow ? '#efe4ff' : '#ffffff';
+      add(new THREE.Mesh(new THREE.PlaneGeometry(34, 14), glow(win, isRainbow ? 2.2 : 3.6)), new THREE.Vector3(0.15, 1, 0.25));
+      for (const sx of [-1, 1]) {
+        const strip = new THREE.Mesh(new THREE.PlaneGeometry(60, 2.6), glow(win, isRainbow ? 2.4 : 4.2));
+        add(strip, new THREE.Vector3(sx, 0.32, 0.15));
+      }
+      add(new THREE.Mesh(new THREE.PlaneGeometry(40, 2.2), glow(win, isRainbow ? 1.8 : 3)), new THREE.Vector3(0, 0.3, -1));
+      studioEnv = pmrem.fromScene(studio, 0, 0.1, 200).texture;
+    }
     pmrem.dispose();
   }
 
@@ -208,8 +235,8 @@ async function boot() {
   composer.addPass(new RenderPass(scene, camera));
   const storybook = new StorybookPass(scene, camera, paperTexture());
   composer.addPass(storybook);
-  if (isCandy) storybook.uniforms.uSat.value = 1.08; // お菓子の世界は、色をあざやかに
-  if (isSunset) storybook.uniforms.uSat.value = 1.04;
+  if (isCandy) storybook.uniforms.uSat.value = 1.1; // お菓子の世界は、色をあざやかに
+  if (isSunset) storybook.uniforms.uSat.value = 1.08;
   // レインボーロードは、道やランプの光がふんわりにじむよう強め
   const bloom = isRainbow
     ? new UnrealBloomPass(new THREE.Vector2(1, 1), 0.5, 0.6, 0.88)
@@ -280,6 +307,19 @@ async function boot() {
   const player = new Racer(playerSpec, true, fx);
   racers.push(player);
   for (const r of racers) scene.add(r.obj);
+  // カートのツヤ：塗装・金属などに、撮影スタジオの環境マップ（明るさは、景色の環境の強さにそろえる）
+  if (studioEnv) {
+    for (const r of racers)
+      r.model.root.traverse((o) => {
+        const mats = (o as THREE.Mesh).material;
+        for (const m of Array.isArray(mats) ? mats : mats ? [mats] : []) {
+          const sm = m as THREE.MeshStandardMaterial;
+          if (!sm.isMeshStandardMaterial || !sm.userData.studio || sm.envMap) continue;
+          sm.envMap = studioEnv;
+          sm.envMapIntensity *= scene.environmentIntensity;
+        }
+      });
+  }
   const race = new Race(track, racers, player, items);
   player.fx.warm(renderer, camera, rt); // 絶対バリアのシェーダーを、先に用意しておく
   const hud = new HUD(uiRoot, track);
@@ -533,6 +573,9 @@ async function boot() {
   let lastRepel = 0; // バリアが攻撃をはじいた回数（全員ぶん）
   let lastPlayerHits = 0; // 自分のバリアがはじいた回数
   let barrierWasOn = false;
+  let lastBump = 0; // カート同士が強くぶつかった回数
+  const BUMP_SPARK = new THREE.Color('#ffd27a');
+  const BUMP_WHITE = new THREE.Color('#ffffff');
 
   // 縦長の画面（スマホ・タブレットの縦持ち）か
   const isPortrait = () => window.innerHeight > window.innerWidth;
@@ -815,6 +858,20 @@ async function boot() {
       if (race.state !== 'finished') hud.flash('バリアが 切れた！', false, '#bfe9ff');
     }
     barrierWasOn = pk.barrier;
+    // カート同士のぶつかり：その場に火花。自分がぶつかったら、軽く画面がゆれて、ごつんと鳴る
+    if (race.bumpCount !== lastBump) {
+      lastBump = race.bumpCount;
+      const bp = race.lastBump!;
+      for (let i = 0; i < 10 + Math.round(16 * bp.power); i++) {
+        const v = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8, Math.random() - 0.5).normalize().multiplyScalar(4 + Math.random() * 7 * (0.6 + bp.power));
+        v.addScaledVector(bp.a.kart.vel, 0.5).addScaledVector(bp.b.kart.vel, 0.5);
+        fx.sparks.emit(bp.pos, v, i % 3 ? BUMP_SPARK : BUMP_WHITE, { size: 0.18 + Math.random() * 0.2, life: 0.22 + Math.random() * 0.25, gravity: 14, drag: 1.5 });
+      }
+      if (bp.a === player || bp.b === player) {
+        shake = Math.max(shake, 0.12 + 0.2 * bp.power);
+        sfx.bump(0.5 + 0.5 * bp.power);
+      }
+    }
     if (pk.giantScale > 1.5 && pk.grounded && pk.forwardSpeed > 4) {
       stepTimer -= dt;
       if (stepTimer <= 0) {

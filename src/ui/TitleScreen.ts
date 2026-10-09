@@ -2,7 +2,7 @@
 // 絵の中の「スタート」ボタン（または画面のどこか）を押すと次へ進む。
 // ?char= や ?course= を付けたとき、または ?notitle のときは、この画面を飛ばす（開発・確認用）
 
-import { getControlMode, setControlMode } from '../core/settings';
+import { getControlMode, getGraphicsQuality, setControlMode, setGraphicsQuality } from '../core/settings';
 
 // CSS 変数の url() は CSS ファイル（assets/）からの相対で解かれるので、ページ基準の絶対 URL にしておく
 const SRC = new URL(`${import.meta.env.BASE_URL}images/title.webp`, document.baseURI).href;
@@ -28,6 +28,11 @@ export function showTitle(): Promise<void> {
           <button type="button" data-mode="buttons"><i>🕹️</i>ボタン</button>
           <button type="button" data-mode="thumb"><i>☝️</i>おやゆび</button>
         </div>
+        <div class="ctl gfx" role="group" aria-label="がしつ">
+          <span class="lb">がしつ</span>
+          <button type="button" data-gfx="high">高画質</button>
+          <button type="button" data-gfx="standard">標準</button>
+        </div>
       </div>`;
     el.style.setProperty('--title-src', `url("${SRC}")`);
     const art = el.querySelector<HTMLDivElement>('.art')!;
@@ -44,26 +49,32 @@ export function showTitle(): Promise<void> {
     });
 
     // 操作方法のえらび（ボタン／おやゆび）。えらんだほうをピンクで強調。ここを押しても、ゲームは始まらない
-    const ctl = el.querySelector<HTMLDivElement>('.ctl')!;
+    // 画質のえらび（高画質／標準）も同じしくみ
+    const ctl = el.querySelector<HTMLDivElement>('.ctl:not(.gfx)')!;
+    const gfx = el.querySelector<HTMLDivElement>('.ctl.gfx')!;
     const paintCtl = () => {
       const now = getControlMode();
-      for (const b of ctl.querySelectorAll<HTMLButtonElement>('button')) {
-        const on = b.dataset.mode === now;
+      const g = getGraphicsQuality();
+      for (const b of el.querySelectorAll<HTMLButtonElement>('.ctl button')) {
+        const on = b.dataset.mode ? b.dataset.mode === now : b.dataset.gfx === g;
         b.classList.toggle('on', on);
         b.setAttribute('aria-pressed', String(on));
       }
     };
     paintCtl();
-    ctl.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button');
-      if (!b) return;
-      setControlMode(b.dataset.mode === 'thumb' ? 'thumb' : 'buttons');
-      paintCtl();
-      b.blur(); // 押したあとも、キーでスタートできるように
-    });
-    // キーボードで押したときに、ゲームが始まってしまわないように
-    ctl.addEventListener('keydown', (e) => e.stopPropagation());
+    for (const group of [ctl, gfx]) {
+      group.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button');
+        if (!b) return;
+        if (b.dataset.mode) setControlMode(b.dataset.mode === 'thumb' ? 'thumb' : 'buttons');
+        else setGraphicsQuality(b.dataset.gfx === 'standard' ? 'standard' : 'high');
+        paintCtl();
+        b.blur(); // 押したあとも、キーでスタートできるように
+      });
+      // キーボードで押したときに、ゲームが始まってしまわないように
+      group.addEventListener('keydown', (e) => e.stopPropagation());
+    }
 
     // 絵ぜんぶが見えるように収める（絵の外側は、ぼかした同じ絵で埋める）。画面の形が絵とほとんど同じなら、いっぱいに広げる
     const fit = () => {
