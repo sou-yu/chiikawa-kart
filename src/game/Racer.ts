@@ -37,6 +37,8 @@ export class Racer {
 
   // 絶対バリア：コース 1 周ぶん（進み具合 progress が、この値になるまで）続く
   barrierEnd = -Infinity;
+  // 表彰式：台の上で、バンザイしながら、ぴょんぴょん弾む
+  cheer = false;
   // 攻撃をはじいたとき（Race が、音・文字の演出につなぐ）
   onRepel: ((r: Racer, from: THREE.Vector3, power: number) => void) | null = null;
 
@@ -142,7 +144,11 @@ export class Racer {
     this.visual.rotation.z = k.driftDir * 0.07 + (k.grounded ? 0 : -k.steerInput * 0.1);
 
     // ジャンプトリック：その場で横に1回転（ヨー）。途中で顔がこちらを向く
-    if (k.tricking) {
+    if (this.cheer) {
+      this.pose = Math.min(1, this.pose + dt * 4);
+      this.poseHold = 1;
+      this.visual.position.y += Math.abs(Math.sin(this.time * 4.2)) * 0.22;
+    } else if (k.tricking) {
       const p = k.trickProgress;
       const eased = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
       this.visual.rotation.y += -k.trickDir * eased * Math.PI * 2;

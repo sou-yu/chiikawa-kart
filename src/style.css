@@ -192,6 +192,8 @@ html, body {
 /* スタート前（タイトルとカメラの演出中）は、順位や地図を消して絵だけを見せる。カウントダウンでふわっと出る */
 #item-slot, #bottom-left, #minimap, #place, #timer { transition: opacity 0.6s ease-out; }
 #ui.intro #item-slot, #ui.intro #bottom-left, #ui.intro #minimap, #ui.intro #place, #ui.intro #timer { opacity: 0; }
+/* 表彰式のあいだも、レースの表示は隠す */
+#ui.ceremony #item-slot, #ui.ceremony #bottom-left, #ui.ceremony #minimap, #ui.ceremony #place, #ui.ceremony #timer, #ui.ceremony #banner, #ui.ceremony #speedlines, #ui.ceremony #drift { opacity: 0 !important; }
 
 /* 中央の文字 */
 #center, #banner {
@@ -709,3 +711,82 @@ body.finished #rearmirror { display: none; }
 @keyframes driftMax { to { filter: brightness(1.5); } }
 body.portrait #drift { bottom: 58%; }
 #banner { transition: color 0.1s; }
+
+/* --- グランプリ --- */
+#results .panel.gp { min-width: 310px; max-height: calc(100vh - var(--safe-b) - 24px); overflow: auto; }
+#results .panel.gp h3 {
+  margin: 8px 0 2px;
+  text-align: center;
+  font-size: 16px;
+  color: #f2a62b;
+  -webkit-text-stroke: 4px var(--ink);
+  paint-order: stroke fill;
+}
+#results .panel.gp .now li { font-size: 14px; padding: 0 8px; }
+#results .panel.gp .now img { width: 24px; height: 24px; }
+#results .panel.gp .total li { animation: gpRow 0.4s ease-out both; animation-delay: var(--d, 0s); }
+#results .gain { color: #2fa86b; font-size: 13px; min-width: 32px; text-align: right; }
+#results .pt { min-width: 36px; text-align: right; font-size: 18px; color: #e8456b; }
+#results .pt::after { content: 'pt'; font-size: 11px; margin-left: 1px; }
+@keyframes gpRow { from { opacity: 0; transform: translateX(24px); } }
+
+/* 表彰式 */
+#ceremony {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(var(--safe-t, 0px) + 18px) 12px calc(var(--safe-b) + 16px);
+  box-sizing: border-box;
+  pointer-events: none;
+  animation: fadeIn 0.8s ease-out;
+  color: var(--ink);
+  font-family: var(--font);
+}
+#ceremony .head {
+  text-align: center;
+  font: 900 30px/1.15 var(--font);
+  color: #ffd23a;
+  -webkit-text-stroke: 7px var(--ink);
+  paint-order: stroke fill;
+  animation: cerPop 0.9s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+#ceremony .head small { display: block; font-size: 17px; color: #fff; }
+#ceremony .head b { color: #ff7da0; }
+#ceremony .bottom { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+#ceremony .podium { display: flex; align-items: flex-end; gap: 8px; }
+#ceremony .p {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 92px;
+  padding: 6px 4px;
+  border-radius: 16px;
+  border: 3px solid var(--ink);
+  background: rgba(255, 250, 242, 0.95);
+  box-shadow: 0 4px 0 rgba(47, 36, 31, 0.35);
+  font-weight: 900;
+  animation: cerPop 0.7s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+#ceremony .p1 { order: 2; background: #fff3c2; animation-delay: 1.4s; }
+#ceremony .p2 { order: 1; animation-delay: 0.9s; }
+#ceremony .p3 { order: 3; animation-delay: 0.5s; }
+#ceremony .p img { width: 44px; height: 44px; }
+#ceremony .p .md { font-size: 24px; line-height: 1; }
+#ceremony .p .nm { font-size: 13px; }
+#ceremony .p .pt { font-size: 16px; color: #e8456b; }
+#ceremony .me { font: 900 16px var(--font); color: #fff; -webkit-text-stroke: 4px var(--ink); paint-order: stroke fill; }
+#ceremony .retry {
+  pointer-events: auto;
+  font: 900 18px var(--font);
+  padding: 8px 28px;
+  border-radius: 999px;
+  border: 3px solid var(--ink);
+  background: #ffc4d4;
+  color: var(--ink);
+  box-shadow: 0 3px 0 var(--ink);
+  animation: cerPop 0.6s 2.2s both;
+}
+@keyframes cerPop { from { opacity: 0; transform: scale(0.5); } }

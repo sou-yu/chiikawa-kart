@@ -3,6 +3,7 @@ import { ITEMS, ITEM_IDS } from '../game/Items';
 import type { Race } from '../game/Race';
 import type { Racer } from '../game/Racer';
 import type { Track } from '../track/Track';
+import { standings, type GPState } from '../game/GrandPrix';
 
 const ORD = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th'];
 
@@ -15,7 +16,7 @@ export class HUD {
   private flashTimer = 0;
   private rouletteT = 0;
 
-  constructor(root: HTMLElement, private track: Track) {
+  constructor(private root: HTMLElement, private track: Track) {
     root.insertAdjacentHTML(
       'beforeend',
       `<div id="speedlines"></div>
@@ -211,6 +212,55 @@ export class HUD {
     }
   }
 
+  // グランプリの結果：今回の順位とタイム → 合計ポイントの順位表（ポイントが数えあがる）。ボタンで次へ
+  showGPResults(race: Race, gp: GPState, legLabel: string, nextLabel: string, onNext: () => void) {
+    const byId = new Map(race.racers.map((r) => [r.spec.id, r]));
+    const now = [...race.racers].sort((a, b) => a.place - b.place);
+    const rows = now
+      .map((r) => {
+        const time = r.finished ? formatTime(r.finishTime) : '--:--.--';
+        return `<li class="${r.isPlayer ? 'me' : ''}"><span class="rk">${ORD[r.place - 1]}</span><img src="${r.icon.toDataURL()}"><span class="nm">${r.spec.name}</span><span class="tm">${time}</span></li>`;
+      })
+      .join('');
+    const table = standings(gp)
+      .map((id, i) => {
+        const r = byId.get(id)!;
+        return gpRow(r, i + 1, gp.points[id], gp.gained[id] ?? 0, r.isPlayer, 0.6 + i * 0.12);
+      })
+      .join('');
+    this.el.results.innerHTML = `<div class="panel gp"><h2>${legLabel}</h2><ol class="now">${rows}</ol>
+      <h3>グランプリ ごうけい</h3><ol class="total">${table}</ol><button class="retry">${nextLabel}</button></div>`;
+    this.el.results.classList.add('show');
+    document.body.classList.add('finished');
+    // ポイントを、少しずつ数えあげる
+    const pts = [...this.el.results.querySelectorAll<HTMLElement>('.pt')];
+    const t0 = performance.now() + 900;
+    const tick = () => {
+      const u = Math.min(1, Math.max(0, (performance.now() - t0) / 900));
+      for (const e of pts) e.textContent = String(Math.round(Number(e.dataset.from) + (Number(e.dataset.to) - Number(e.dataset.from)) * u));
+      if (u < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    this.el.results.querySelector<HTMLButtonElement>('.retry')!.addEventListener('pointerup', onNext, { once: true });
+  }
+
+  // 表彰式の文字：上に「グランプリ ゆうしょう ○○」、下に 1〜3 位と合計ポイント、「タイトルへ」
+  showCeremony(top: { name: string; icon: HTMLCanvasElement; points: number }[], playerRank: number, onTitle: () => void) {
+    this.el.results.classList.remove('show');
+    this.el.results.innerHTML = '';
+    const medals = ['🥇', '🥈', '🥉'];
+    const el = document.createElement('div');
+    el.id = 'ceremony';
+    el.innerHTML = `<div class="head"><small>ちいかわグランプリ</small>ゆうしょう <b>${top[0].name}</b></div>
+      <div class="bottom"><div class="podium">${top
+        .map((t, i) => `<div class="p p${i + 1}"><span class="md">${medals[i]}</span><img src="${t.icon.toDataURL()}"><span class="nm">${t.name}</span><span class="pt">${t.points}pt</span></div>`)
+        .join('')}</div>
+      <div class="me">あなたは <b>${ORD[playerRank - 1]}</b></div>
+      <button class="retry">タイトルへ</button></div>`;
+    this.root.appendChild(el);
+    el.querySelector<HTMLButtonElement>('.retry')!.addEventListener('pointerup', onTitle, { once: true });
+  }
+
   showResults(race: Race, onRetry: () => void) {
     const rows = [...race.racers]
       .sort((a, b) => a.place - b.place)
@@ -226,6 +276,12 @@ export class HUD {
     const btn = this.el.results.querySelector<HTMLButtonElement>('.retry')!;
     btn.addEventListener('pointerup', onRetry);
   }
+}
+
+// グランプリの、合計の順位表の 1 行
+function gpRow(r: Racer, rank: number, total: number, gained: number, me: boolean, delay: number) {
+  return `<li class="${me ? 'me' : ''}" style="--d:${delay}s"><span class="rk">${ORD[rank - 1]}</span><img src="${r.icon.toDataURL()}"><span class="nm">${r.spec.name}</span>`
+    + `<span class="gain">+${gained}</span><span class="pt" data-to="${total}" data-from="${total - gained}">${total - gained}</span></li>`;
 }
 
 export function formatTime(t: number): string {

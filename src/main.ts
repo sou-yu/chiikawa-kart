@@ -40,6 +40,8 @@ import { Track } from './track/Track';
 import { KUSAMUSHIRI } from './track/tracks/kusamushiri';
 import { HUD } from './ui/HUD';
 import { RearMirror } from './fx/RearMirror';
+import { GP_NAMES, GP_ORDER, addResults, clearGP, goNextLeg, isFinalLeg, loadGP, standings, startGP, type GPState } from './game/GrandPrix';
+import { Ceremony } from './game/Ceremony';
 
 async function boot() {
   // 縦持ち（スマホ・タブレットの縦画面）用の配置に切り替える。選ぶ画面から効くよう、最初に付ける
@@ -85,6 +87,13 @@ async function boot() {
   let charId: string | null = null;
   let courseId: string | null = null;
   let withTitle = true;
+  // グランプリ：続き（?gp=<何戦目>）なら、キャラとコースは保存したものを使い、タイトルと選ぶ画面は飛ばす
+  let gp = loadGP();
+  let gpNew = false;
+  if (gp) {
+    charId = gp.char;
+    courseId = GP_ORDER[gp.leg];
+  }
   while (courseId === null) {
     if (charId === null) {
       if (withTitle) await showTitle();
@@ -109,6 +118,11 @@ async function boot() {
       ],
       lastCourse,
     );
+    if (courseId === 'gp') {
+      // グランプリをはじめる：1 戦目は草原
+      gpNew = true;
+      courseId = GP_ORDER[0];
+    }
     if (courseId === null) {
       charId = null; // もどる → キャラ選択へ（タイトルは出さない）
       withTitle = false;
@@ -298,11 +312,16 @@ async function boot() {
   // えらんだキャラが主人公。ほかのキャラが相手になる
   const playerSpec = CHARACTERS.find((c) => c.id === charId) ?? CHARACTERS[0];
   // 相手は、えらばなかったキャラの中から毎回ランダムに（スタートの並び順もランダム）
-  const cpuSpecs = CHARACTERS.filter((c) => c !== playerSpec)
-    .map((c) => ({ c, k: Math.random() }))
-    .sort((a, b) => a.k - b.k)
-    .slice(0, RACE.cpus)
-    .map((e) => e.c);
+  // グランプリのあいだは、1 戦目で決めた顔ぶれ・並び順のまま
+  const saved = gp?.cpus.map((id) => CHARACTERS.find((c) => c.id === id)).filter((c): c is (typeof CHARACTERS)[number] => !!c);
+  const cpuSpecs = saved && saved.length === RACE.cpus
+    ? saved
+    : CHARACTERS.filter((c) => c !== playerSpec)
+        .map((c) => ({ c, k: Math.random() }))
+        .sort((a, b) => a.k - b.k)
+        .slice(0, RACE.cpus)
+        .map((e) => e.c);
+  if (gpNew) gp = startGP(playerSpec.id, cpuSpecs.map((c) => c.id));
   const racers = cpuSpecs.map((s) => new Racer(s, false, fx));
   const player = new Racer(playerSpec, true, fx);
   racers.push(player);
@@ -528,9 +547,50 @@ async function boot() {
       setTimeout(() => hud.showCenter(''), 1800);
       setTimeout(() => {
         music.duck(0.3, 2);
-        hud.showResults(race, () => location.reload());
+        if (!gp) {
+          hud.showResults(race, () => location.reload());
+          return;
+        }
+        // グランプリ：ポイントを足して、合計の順位表。最終戦のあとは表彰式へ
+        const g = gp;
+        addResults(g, race);
+        const final = isFinalLeg(g);
+        const next = GP_ORDER[g.leg + 1];
+        hud.showGPResults(
+          race,
+          g,
+          `グランプリ ${g.leg + 1}/${GP_ORDER.length}　${GP_NAMES[GP_ORDER[g.leg]]}`,
+          final ? 'ひょうしょうしきへ' : `つぎへ（${g.leg + 2}/${GP_ORDER.length} ${GP_NAMES[next]}）`,
+          () => (final ? startCeremony(g) : goNextLeg(g)),
+        );
       }, FINISH_CAM_TIME * 1000);
     }
+  }
+
+  // --- グランプリの表彰式 ---
+  let ceremony: Ceremony | null = null;
+  function startCeremony(g: GPState) {
+    const order = standings(g);
+    const byId = new Map(racers.map((r) => [r.spec.id, r]));
+    const top = order.slice(0, 3).map((id) => byId.get(id)!).filter(Boolean);
+    ceremony = new Ceremony(track, racers, top, fx);
+    scene.add(ceremony.group);
+    items.group.visible = false;
+    mirror.show(0);
+    uiRoot.classList.add('ceremony'); // 順位や地図などは隠す
+    hud.showCeremony(
+      top.map((r) => ({ name: r.spec.name, icon: r.icon, points: g.points[r.spec.id] })),
+      order.indexOf(player.spec.id) + 1,
+      () => {
+        clearGP();
+        location.search = '';
+      },
+    );
+    designFov = 52;
+    applyFov();
+    music.duck(0.5, 1);
+    sfx.goChime();
+    setTimeout(() => sfx.fanfare(1), 500);
   }
 
   // --- カメラ ---
@@ -773,7 +833,7 @@ async function boot() {
 
     acc += dt;
     let steps = 0;
-    while (acc >= STEP && steps < 6) {
+    while (acc >= STEP && steps < 6 && !ceremony) {
       race.update(STEP, input.update());
       acc -= STEP;
       steps++;
@@ -948,7 +1008,15 @@ async function boot() {
     for (const r of racers) r.updateVisual(dt);
     fx.sparks.update(dt);
     fx.dust.update(dt);
-    updateCamera(dt);
+    if (ceremony) {
+      // 表彰式：台の正面からのカメラ。影も台のまわりに
+      ceremony.update(dt);
+      ceremony.camera(camPos, camLook, isPortrait());
+      camera.position.copy(camPos);
+      camera.lookAt(camLook);
+      sun.position.copy(ceremony.focus).add(SUN_OFFSET);
+      sun.target.position.copy(ceremony.focus);
+    } else updateCamera(dt);
     landmarks.update(dt, camera);
     fx.sparks.setViewport(renderer.domElement.height, camera.fov);
     fx.dust.setViewport(renderer.domElement.height, camera.fov);

@@ -179,3 +179,33 @@
 #course-pick.go .back,
 #course-pick.go .ok { pointer-events: none; }
 @keyframes cpBlink { 50% { opacity: 0.55; } }
+
+/* グランプリ：4 つのコースを順番に走るモード。絵の右上に重ねるボタン */
+#course-pick .gp {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1cqw;
+  appearance: none;
+  border: 0.8cqw solid #f2a62b;
+  border-radius: 999px;
+  background: linear-gradient(#fff6c8, #ffd86b);
+  color: #7a4512;
+  font: 900 3.3cqw/1 var(--font);
+  white-space: nowrap;
+  padding: 0;
+  box-shadow: 0 0.9cqw 0 #d98a14, 0 1.6cqw 2.6cqw rgba(120, 70, 10, 0.3);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  animation: cpGp 1.8s ease-in-out infinite;
+}
+#course-pick .gp i { font-style: normal; font-size: 4.4cqw; }
+#course-pick .gp span { text-align: left; }
+#course-pick .gp small { display: block; font-size: 2.3cqw; font-weight: 800; opacity: 0.8; margin-top: 0.4cqw; }
+#course-pick .gp:active { transform: translateY(0.8cqw) scale(0.97); box-shadow: 0 0.2cqw 0 #d98a14; animation: none; }
+#course-pick.go .gp { pointer-events: none; }
+@keyframes cpGp {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}

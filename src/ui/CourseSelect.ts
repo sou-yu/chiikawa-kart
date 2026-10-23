@@ -3,6 +3,7 @@ import './courseSelect.css';
 // 「コースをえらぼう」画面。用意した 1 枚の背景の絵（public/images/courseselect-bg.webp、941×1672）の上に、
 //  ・4 つのコースのカードを押すと、そのコースが「えらばれた」状態になる（大きくなり、ピンクの枠とチェックがつく）
 //  ・絵の中の「けってい」で決めて次へ進む。「もどる」はキャラ選択へ（null を返す）
+//  ・右上の「グランプリ」は、4 つのコースを順番に走るモード（'gp' を返す）
 // 絵の中では、キャンディーポップロードが「えらばれた」状態で描かれている。ほかのコースをえらんだときは、
 // その絵のカードの部分を切り出して重ね、キャンディーポップロードのほうは枠の色とチェックをかくして、ふつうのカードに戻す。
 // ?course=（コースの id）を付けると、この画面を飛ばす（開発・確認用）
@@ -60,6 +61,7 @@ const CARDS: Card[] = [
 // 絵の中のボタンの範囲
 const BTN_OK: R = { x: 262, y: 1486, w: 420, h: 134 };
 const BTN_BACK: R = { x: 34, y: 44, w: 178, h: 80 };
+const BTN_GP: R = { x: 640, y: 40, w: 282, h: 96 }; // グランプリ（絵の外の HTML のボタン）
 
 const SEL_SCALE = 1.07; // えらばれたカードの大きさ（絵の中のキャンディーのカードが、ほかより約 7% 大きい）
 
@@ -119,6 +121,7 @@ export function chooseCourse(courses: CourseChoice[], initial?: string): Promise
         ${cardHtml}
         ${hitHtml}
         <button class="back" type="button" aria-label="もどる" style="${box(BTN_BACK)}"><span style="left:0;top:0;width:${u(BTN_BACK.w)};height:${u(BTN_BACK.h)};${bg(BTN_BACK, BTN_BACK.w, BTN_BACK.h)}"></span></button>
+        <button class="gp" type="button" style="${box(BTN_GP)}"><i>🏆</i><span>グランプリ<small>4コースれんせん</small></span></button>
         <button class="ok" type="button" aria-label="けってい" style="${box(BTN_OK)}"><span style="left:0;top:0;width:${u(BTN_OK.w)};height:${u(BTN_OK.h)};${bg(BTN_OK, BTN_OK.w, BTN_OK.h)}"></span></button>
         <div class="loading">じゅんび中…</div>
       </div>`;
@@ -214,6 +217,8 @@ export function chooseCourse(courses: CourseChoice[], initial?: string): Promise
     };
     el.querySelector('.ok')!.addEventListener('click', () => finish(sel));
     el.querySelector('.back')!.addEventListener('click', () => finish(null));
+    // グランプリ：コースはえらばず、4 つを順番に（'gp' を返す）
+    el.querySelector('.gp')!.addEventListener('click', () => finish('gp'));
 
     const onKey = (e: KeyboardEvent) => {
       const i = list.findIndex((c) => c.id === sel);
