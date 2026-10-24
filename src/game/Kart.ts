@@ -185,6 +185,45 @@ export class Kart {
     this.boostTotal = Math.max(this.boostTotal, this.boostTime);
   }
 
+  // ---- 描くときの補間：計算（1/60 秒ごと）と描画（画面の速さ）のずれで、カートがカクついて見えないようにする ----
+  private readonly prevPos = new THREE.Vector3();
+  private prevHeading = 0;
+  private prevY = 0;
+  private readonly realPos = new THREE.Vector3();
+  private realHeading = 0;
+  private realY = 0;
+  private interp = false;
+
+  // 計算を 1 歩すすめる直前に呼ぶ
+  snapshot() {
+    this.prevPos.copy(this.pos);
+    this.prevHeading = this.heading;
+    this.prevY = this.y;
+  }
+
+  // 描く前に呼ぶ：前の歩と今の歩のあいだ（alpha）の位置にする。描き終えたら endRender で戻す
+  beginRender(alpha: number) {
+    this.realPos.copy(this.pos);
+    this.realHeading = this.heading;
+    this.realY = this.y;
+    this.interp = true;
+    // ワープ（コースに戻されたときなど）は、補間しない
+    if (alpha >= 1 || this.prevPos.distanceToSquared(this.pos) > 64) return;
+    let dh = this.heading - this.prevHeading;
+    dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+    this.pos.lerpVectors(this.prevPos, this.realPos, alpha);
+    this.heading = this.prevHeading + dh * alpha;
+    this.y = this.prevY + (this.realY - this.prevY) * alpha;
+  }
+
+  endRender() {
+    if (!this.interp) return;
+    this.interp = false;
+    this.pos.copy(this.realPos);
+    this.heading = this.realHeading;
+    this.y = this.realY;
+  }
+
   update(dt: number, rawInput: InputState, track: Track) {
     this.landed = this.wallHit = this.boostStarted = this.trickStarted = this.trickLanded = false;
     if (rawInput.jump && this.spinTime <= 0 && this.squashTime <= 0 && this.grounded && !this.tricking) {

@@ -199,6 +199,19 @@ async function boot() {
   sun.shadow.intensity = 0.75; // 影は真っ黒にしない
   scene.add(sun, sun.target);
   const SUN_OFFSET = SUN_DIR.clone().multiplyScalar(66);
+  // 影の範囲を、見る先に合わせて動かす。影の地図の 1 ます単位にそろえて動かすので、動いても影のふちがちらちらしない
+  const sunAxisX = new THREE.Vector3().crossVectors(THREE.Object3D.DEFAULT_UP, SUN_DIR).normalize();
+  const sunAxisY = new THREE.Vector3().crossVectors(SUN_DIR, sunAxisX).normalize();
+  const sunFocusSnap = new THREE.Vector3();
+  function followSun(focus: THREE.Vector3) {
+    const texel = (sun.shadow.camera.right - sun.shadow.camera.left) / Math.max(1, sun.shadow.mapSize.x);
+    const fx0 = focus.dot(sunAxisX), fy0 = focus.dot(sunAxisY);
+    sunFocusSnap.copy(focus)
+      .addScaledVector(sunAxisX, Math.round(fx0 / texel) * texel - fx0)
+      .addScaledVector(sunAxisY, Math.round(fy0 / texel) * texel - fy0);
+    sun.position.copy(sunFocusSnap).add(SUN_OFFSET);
+    sun.target.position.copy(sunFocusSnap);
+  }
 
   // 空から環境マップを作る（キャラやカートのツヤに空が映る）
   const skyMat = isRainbow ? rainbowSkyMaterial() : isCandy ? candySkyMaterial(SUN_DIR) : isSunset ? sunsetSkyMaterial(false) : skyMaterial();
@@ -569,12 +582,18 @@ async function boot() {
 
   // --- グランプリの表彰式 ---
   let ceremony: Ceremony | null = null;
+  const cerPose = { pos: new THREE.Vector3(), look: new THREE.Vector3(), fov: 50 };
   function startCeremony(g: GPState) {
     const order = standings(g);
     const byId = new Map(racers.map((r) => [r.spec.id, r]));
     const top = order.slice(0, 3).map((id) => byId.get(id)!).filter(Boolean);
     ceremony = new Ceremony(track, racers, top, fx);
     scene.add(ceremony.group);
+    // 花火の音：遠いほど小さく、少し遅れて（光ってから音が届く）
+    ceremony.onBurst = (d, big) => {
+      const vol = Math.max(0.25, 1 - d / 70);
+      setTimeout(() => sfx.firework(vol, big), Math.min(400, d * 6));
+    };
     items.group.visible = false;
     mirror.show(0);
     uiRoot.classList.add('ceremony'); // 順位や地図などは隠す
@@ -586,8 +605,6 @@ async function boot() {
         location.search = '';
       },
     );
-    designFov = 52;
-    applyFov();
     music.duck(0.5, 1);
     sfx.goChime();
     setTimeout(() => sfx.fanfare(1), 500);
@@ -692,8 +709,7 @@ async function boot() {
       // 影は、並んだカートのまんなかから、だんだんプレイヤーのまわりへ
       const e = introT > 0 ? ease(introT / INTRO_TIME) : 0;
       sunFocus.lerpVectors(intro.center, k.pos, e);
-      sun.position.copy(sunFocus).add(SUN_OFFSET);
-      sun.target.position.copy(sunFocus);
+      followSun(sunFocus);
       return;
     }
     const fx_ = Math.sin(h), fz = Math.cos(h);
@@ -721,8 +737,7 @@ async function boot() {
       // 縦持ちは横幅がせまいので、画角を広げて、キャラ全体が入るように
       designFov += (mix(5) * (isPortrait() ? 1.3 : 1) - designFov) * (1 - Math.exp(-6 * dt));
       applyFov();
-      sun.position.copy(k.pos).add(SUN_OFFSET);
-      sun.target.position.copy(k.pos);
+      followSun(k.pos);
       return;
     }
     glideCam += ((k.gliding ? 1 : 0) - glideCam) * (1 - Math.exp(-2.5 * dt));
@@ -762,8 +777,7 @@ async function boot() {
     applyFov();
 
     // 影はプレイヤーの周りだけ
-    sun.position.copy(k.pos).add(SUN_OFFSET);
-    sun.target.position.copy(k.pos);
+    followSun(k.pos);
   }
 
   function resize() {
@@ -834,6 +848,7 @@ async function boot() {
     acc += dt;
     let steps = 0;
     while (acc >= STEP && steps < 6 && !ceremony) {
+      for (const r of racers) r.kart.snapshot();
       race.update(STEP, input.update());
       acc -= STEP;
       steps++;
@@ -1005,17 +1020,26 @@ async function boot() {
     }
     exposureKick *= Math.exp(-6 * dt);
     renderer.toneMappingExposure = 1.05 + exposureKick;
+    // 描くときは、前の計算と今の計算のあいだの位置で（画面の速さが 60 でなくても、なめらかに動く）
+    const alpha = ceremony ? 1 : Math.min(1, acc / STEP);
+    for (const r of racers) r.kart.beginRender(alpha);
+    // ゴール後のアップでは、エンジンの小きざみな振動を弱める
+    player.vibe = finishCam > 0 ? 0.25 : 1;
     for (const r of racers) r.updateVisual(dt);
     fx.sparks.update(dt);
     fx.dust.update(dt);
     if (ceremony) {
       // 表彰式：台の正面からのカメラ。影も台のまわりに
       ceremony.update(dt);
-      ceremony.camera(camPos, camLook, isPortrait());
-      camera.position.copy(camPos);
-      camera.lookAt(camLook);
-      sun.position.copy(ceremony.focus).add(SUN_OFFSET);
-      sun.target.position.copy(ceremony.focus);
+      ceremony.camera(cerPose, isPortrait());
+      camera.position.copy(cerPose.pos);
+      camera.lookAt(cerPose.look);
+      designFov = cerPose.fov;
+      applyFov();
+      ceremony.sparks.setViewport(renderer.domElement.height, camera.fov);
+      exposureKick = Math.max(exposureKick, ceremony.flash * 0.08);
+      hud.ceremonyFocus(ceremony.focusRank);
+      followSun(ceremony.focus);
     } else updateCamera(dt);
     landmarks.update(dt, camera);
     fx.sparks.setViewport(renderer.domElement.height, camera.fov);
@@ -1025,6 +1049,7 @@ async function boot() {
     globalUniforms.uTime.value += dt;
     composer.render(dt);
     mirror.render(pk, player.fx.insideObjects);
+    for (const r of racers) r.kart.endRender();
 
     frames++;
     if (now - fpsTime >= 1000) {

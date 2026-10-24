@@ -261,6 +261,13 @@ export class HUD {
     el.querySelector<HTMLButtonElement>('.retry')!.addEventListener('pointerup', onTitle, { once: true });
   }
 
+  // 表彰式で、いまカメラがアップで映している順位の名札を光らせる（0 = なし）
+  ceremonyFocus(rank: number) {
+    if (this.last.cerFocus === rank) return;
+    this.last.cerFocus = rank;
+    document.querySelectorAll('#ceremony .p').forEach((e) => e.classList.toggle('focus', e.classList.contains(`p${rank}`)));
+  }
+
   showResults(race: Race, onRetry: () => void) {
     const rows = [...race.racers]
       .sort((a, b) => a.place - b.place)

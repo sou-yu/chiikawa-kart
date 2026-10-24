@@ -322,6 +322,53 @@ export class Sfx {
     n.start(t0);
   }
 
+  // 打ち上げ花火が開いた：どーん（低い音）と、ぱらぱら（細かい音）。big は大玉
+  firework(vol = 1, big = false) {
+    const ctx = this.ctx;
+    if (!ctx || !this.master) return;
+    const t0 = ctx.currentTime;
+    const v = Math.max(0.1, Math.min(1, vol)) * 0.7;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(big ? 95 : 130, t0);
+    o.frequency.exponentialRampToValueAtTime(38, t0 + 0.5);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.6 * v, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + (big ? 0.9 : 0.6));
+    o.connect(g).connect(this.master);
+    o.start(t0);
+    o.stop(t0 + 1);
+    // 破裂の「ばん」
+    const n = ctx.createBufferSource();
+    n.buffer = this.noiseBuf(0.5);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(2400, t0);
+    lp.frequency.exponentialRampToValueAtTime(300, t0 + 0.4);
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t0);
+    ng.gain.exponentialRampToValueAtTime(0.35 * v, t0 + 0.005);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.45);
+    n.connect(lp).connect(ng).connect(this.master);
+    n.start(t0);
+    // ぱらぱら：小さな火の粉がはじける音
+    const crk = ctx.createBufferSource();
+    crk.buffer = this.noiseBuf(1.2);
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 3500;
+    const cg = ctx.createGain();
+    cg.gain.setValueAtTime(0.0001, t0);
+    for (let t = 0.25; t < 1.1; t += 0.03 + Math.random() * 0.05) {
+      cg.gain.setValueAtTime(0.0001, t0 + t);
+      cg.gain.linearRampToValueAtTime(0.08 * v * (1.2 - t), t0 + t + 0.004);
+      cg.gain.linearRampToValueAtTime(0.0001, t0 + t + 0.02);
+    }
+    crk.connect(hp).connect(cg).connect(this.master);
+    crk.start(t0);
+  }
+
   // 表彰式のファンファーレ：ド・ミ・ソ・ドの上り → 明るい和音がのびる
   fanfare(vol = 1) {
     const v = Math.max(0.1, Math.min(1, vol));

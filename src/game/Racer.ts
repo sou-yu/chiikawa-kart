@@ -39,6 +39,8 @@ export class Racer {
   barrierEnd = -Infinity;
   // 表彰式：台の上で、バンザイしながら、ぴょんぴょん弾む
   cheer = false;
+  // エンジンの小きざみな振動の強さ（ゴール後のアップでは弱めて、ちらつきに見えないように）
+  vibe = 1;
   // 攻撃をはじいたとき（Race が、音・文字の演出につなぐ）
   onRepel: ((r: Racer, from: THREE.Vector3, power: number) => void) | null = null;
 
@@ -176,7 +178,7 @@ export class Racer {
 
     const speed = Math.abs(k.forwardSpeed);
     const bump = k.offroad ? 0.05 : 0.012;
-    this.model.root.position.y = speed > 1 && k.grounded ? Math.abs(Math.sin(this.time * 20)) * bump : 0;
+    this.model.root.position.y = speed > 1 && k.grounded ? Math.abs(Math.sin(this.time * 20)) * bump * this.vibe : 0;
     this.model.head.rotation.z = Math.sin(this.time * 3) * 0.05 - k.driftDir * 0.14 - k.steerInput * 0.06;
     this.model.head.rotation.x = k.boostTime > 0 ? -0.12 : 0;
     // ゴール後は頭をぴょんぴょん弾ませて喜ぶ

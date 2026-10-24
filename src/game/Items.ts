@@ -882,11 +882,11 @@ function warnMesh(): THREE.Group {
   // 地面の起伏にうもれないよう、奥行きの判定はしない（丘のかげでも、範囲が見える）
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(BLAST_RADIUS - 2.4, BLAST_RADIUS, 72).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 0.25, 0.12), transparent: true, opacity: 0, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(2.2, 0.25, 0.12), transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }),
   );
   const disc = new THREE.Mesh(
     new THREE.CircleGeometry(BLAST_RADIUS, 56).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 0.2, 0.08), transparent: true, opacity: 0, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }),
+    new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 0.2, 0.08), transparent: true, opacity: 0, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false }),
   );
   ring.renderOrder = disc.renderOrder = 9;
   g.add(ring, disc);
